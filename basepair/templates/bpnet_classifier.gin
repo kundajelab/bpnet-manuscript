@@ -1,0 +1,43 @@
+# bpnet classifier
+
+# ==================================================================
+# problem.gin
+# --------------------------------------------
+# data
+train.data = @chrom_dataset()  # use the default train and valid chromosomes
+chrom_dataset.dataset_cls = @SeqClassification
+SeqClassification.fasta_file = "/mnt/data/pipeline_genome_data/mm10/mm10_no_alt_analysis_set_ENCODE.fasta"
+SeqClassification.intervals_file = "/srv/scratch/avsec/workspace/chipnexus/data/processed/chipseq/labels/chipnexus/accessible/oct4-sox2.intervals_file.DNase-accessible.tsv.gz"
+# --------------------------------------------
+# evaluation
+train.eval_metric = @MetricsMultiTask()
+MetricsMultiTask.task_names = ["Oct4", "Sox2"]
+MetricsMultiTask.metrics = @MetricsConcise()
+MetricsConcise.metrics = ['auprc', 'auc', 'accuracy']
+
+# ==================================================================
+# model.gin
+# --------------------------------------------
+# model
+train.model = @binary_seq_multitask()
+binary_seq_multitask.filters = 64
+binary_seq_multitask.conv1_kernel_size = 25
+binary_seq_multitask.n_dil_layers = 9
+binary_seq_multitask.pool_size = 50
+binary_seq_multitask.dropout = 0.2
+binary_seq_multitask.fc_units = [64]
+binary_seq_multitask.lr = 0.004
+binary_seq_multitask.seq_len = 1000
+binary_seq_multitask.n_tasks = 2
+
+# --------------------------------------------
+# training
+train.batch_size = 256
+train.num_workers = 8
+
+# train-specific
+train.epochs = 100
+train.early_stop_patience = 4
+train.train_epoch_frac = 0.1
+train.valid_epoch_frac = 0.2
+train.stratified_sampler_p = [0.95, 0.05]  # stratified sampling

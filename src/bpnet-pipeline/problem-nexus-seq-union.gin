@@ -1,0 +1,30 @@
+# ==================================================================
+# problem.gin
+# --------------------------------------------
+# data
+import basepair
+import basepair.datasets
+import basepair.metrics
+
+target_seqlen = 1000
+profile_bias_pool_size = None
+# seq_width  -> specified from gin-bindings
+# tasks = ['Oct4', 'Sox2', 'Nanog']  -> specified from gin-bindings
+
+train.data = @get_StrandedProfile_datasets2()  # use the default train and valid chromosomes
+get_StrandedProfile_datasets2.peak_width = %target_seqlen
+get_StrandedProfile_datasets2.include_metadata = False
+get_StrandedProfile_datasets2.tasks = %tasks
+get_StrandedProfile_datasets2.taskname_first = True  # so that the output labels will be "{task}/profile"
+get_StrandedProfile_datasets2.exclude_chr = ['chrX', 'chrY']
+get_StrandedProfile_datasets2.profile_bias_pool_size = %profile_bias_pool_size
+
+# NOTE: Train in the joint peak regions
+get_StrandedProfile_datasets2.intervals_file = '/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/merged_set/unique.training.bed.gz'
+
+# specified from the CLI
+get_StrandedProfile_datasets2.dataspec = %dataspec
+get_StrandedProfile_datasets2.seq_width = %seq_width
+# ------------------------------------------------------------------------
+train.train_epoch_frac = 1.0
+train.valid_epoch_frac = 1.0

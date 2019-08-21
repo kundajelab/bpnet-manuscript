@@ -1,0 +1,326 @@
+---
+title: "20-sfig5abcd-motif-validation: BPnet Cofactor Validation"
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+BPnet returned motifs related to TFs and binding sites that it was not explicitly trained to understand. We want to validate that the TFs are binding to these sites of alternative motifs.
+
+1. Validation of Zic3
+
+2. Validation of Esrrb
+
+3. Sox2, Pbx3, and Nanog ChIP-nexus across 5 motifs: 
+
++ 3 Nanog variants from BPNet (test)
++ Sox2 motif from BPNet (positive control)
++ Pbx motif from annotations (positive control)
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+source("https://bioconductor.org/biocLite.R")
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
+library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2019_bpnet/")
+options(knitr.figure_dir="20-sfig5abcd-motif-validation", width=16, height=20)
+
+#Lab sources
+source("rscripts/granges_common.r")
+source("rscripts/knitr_common.r")
+source("rscripts/caching.r")
+source("rscripts/multiplot.R")
+source("rscripts/metapeak_functions.R")
+source("rscripts/metapeak_common.r")
+
+#Specific packages
+library(stringr)
+library(gridExtra)
+library(motifStack)
+```
+
+# Define data paths
+
+```{r define data}
+#BED file with coordinates of each seqlet location returned by TF-MoDISco.
+seqlet_coordinates_filepath <- "data/bed/seqlet_coordinates.bed" 
+
+#List of ChIP-nexus samples that were combined across replicates, blacklisted according to mm10, and normalized to reads per million (RPM). 
+bw.list<-list(oct4 = list(pos = "data/bw/nexus/mesc_oct4_nexus_combined_filtered_normalized_positive.bw",
+                          neg = "data/bw/nexus/mesc_oct4_nexus_combined_filtered_normalized_negative.bw"),
+              sox2 = list(pos = "data/bw/nexus/mesc_sox2_nexus_combined_filtered_normalized_positive.bw",
+                          neg = "data/bw/nexus/mesc_sox2_nexus_combined_filtered_normalized_negative.bw"),
+              nanog = list(pos="data/bw/nexus/mesc_nanog_nexus_combined_filtered_normalized_positive.bw",
+                           neg="data/bw/nexus/mesc_nanog_nexus_combined_filtered_normalized_negative.bw"),
+              klf4 = list(pos="data/bw/nexus/mesc_klf4_nexus_combined_filtered_normalized_positive.bw",
+                          neg="data/bw/nexus/mesc_klf4_nexus_combined_filtered_normalized_negative.bw"),
+              zic3 = list(pos="data/bw/nexus/mesc_zic3_nexus_combined_filtered_normalized_positive.bw",
+                           neg="data/bw/nexus/mesc_zic3_nexus_combined_filtered_normalized_negative.bw"),
+              esrrb = list(pos="data/bw/nexus/mesc_esrrb_nexus_combined_filtered_normalized_positive.bw",
+                           neg="data/bw/nexus/mesc_esrrb_nexus_combined_filtered_normalized_negative.bw"),
+              pbx = list(pos="data/bw/nexus/mesc_pbx_nexus_combined_filtered_normalized_positive.bw",
+                           neg="data/bw/nexus/mesc_pbx_nexus_combined_filtered_normalized_negative.bw"))
+```
+
+# Function to plot motifs
+
+```{r function to plot motifs}
+plot_chipnexus_across_motifs<-function(motif, sample, title, ylim=NA, upstream=100, downstream=100, plot=T){
+  metapeak<-exo_metapeak(gr = resize(motif, 1), sample_name = title, sample=sample, upstream=upstream, downstream=downstream)
+  colnames(metapeak)<-c("position", "norm_reads", "strand", "name", "sample")
+  if(plot){
+  g<-ggplot(metapeak, aes(position, norm_reads, color=strand, group=strand))+
+    geom_rect(aes(ymin=-Inf, ymax=Inf, xmin=0, xmax = width(motif)[1]), alpha=.1, fill="gray90", color="transparent")+
+    geom_line(size=1)+
+    scale_color_manual(values = c("indianred3", "navy"), name="Strand")+
+    scale_y_continuous(name="Normalized reads")+
+    scale_x_continuous(name="Position w.r.t. motif start")+
+    ggtitle(title)+
+    theme_classic()+
+    theme(text=element_text(size=20))
+  if(!is.na(ylim[1])){g<-g+scale_y_continuous(limits=ylim, name="Normalized reads")}
+  return(g)
+  }
+  else{return(metapeak)}
+}
+```
+
+# Validate Zic3 motif returned by TF-MoDISco
+
+```{r sfig5a-zic3}
+zic3_specific_motif<-import(seqlet_coordinates_filepath) %>% subset(., name=="Klf4_2")
+zic3_chip_across_zic_motif<-plot_chipnexus_across_motifs(motif=zic3_specific_motif, title = "Zic3 ChIP-nexus at Zic3 Motif", #ylim=c(-.015, .015),
+                                                         sample = bw.list$zic3)
+print(zic3_chip_across_zic_motif)
+```
+
+# Validate Esrrb motif returned by TF-MoDISco
+
+## Esrrb ChIP at Esrrb motif (BPNet)
+
+```{r sfig5b-esrrb-bpnet}
+#Esrrb ChIP at Esrrb-specific motif
+esrrb_specific_motif<-import(seqlet_coordinates_filepath) %>% subset(., name=="Oct4_16")
+esrrb_chip_across_esrrb_motif<-plot_chipnexus_across_motifs(motif=esrrb_specific_motif, title = "Esrrb ChIP at Esrrb Motif\n(BPNet)", 
+                                                            upstream = 500, downstream = 500, ylim=c(-.015, .015),
+                                                            sample = bw.list$esrrb)
+print(esrrb_chip_across_esrrb_motif)
+```
+
+## Esrrb ChIP at Esrrb motif (Non-BPnet)
+
+### Find Esrrb motif locations across genome through sequence match
+
+```{r motif locations esrrb, eval=F}
+esrrb_motif_across_genome <- DNAString("TCAAGGTCA") %>% 
+  vmatchPattern(., BSgenome.Mmusculus.UCSC.mm10, max.mismatch =0, fixed = "subject") 
+saveRDS("data/rdata/motif_locations/esrrb_TCAAGGTCA_motif_instances_0_mm.rds")
+```
+
+### Plot matches
+
+```{r sfig5b-esrrb-classic}
+#Esrrb ChIP at Esrrb-specific motif
+esrrb_motif_instances<-readRDS("data/rdata/motif_locations/esrrb_TCAAGGTCA_motif_instances_0_mm.rds")
+
+#Switch strand to match BPnet orientation
+neg_idx<-which(strand(esrrb_motif_instances)=="-")
+pos_idx<-which(strand(esrrb_motif_instances)=="+")
+strand(esrrb_motif_instances[neg_idx])<-"+"
+strand(esrrb_motif_instances[pos_idx])<-"-"
+
+#Select top 1K instances that score for Esrrb
+esrrb_motif_instances$esrrb_score<-regionMeans(esrrb_motif_instances, bw.list$esrrb$pos) + 
+  abs(regionMeans(resize(esrrb_motif_instances, 100, "center"), bw.list$esrrb$neg))
+esrrb_motif_instances<-esrrb_motif_instances[order(esrrb_motif_instances$esrrb_score, decreasing=T)][1:1000] 
+
+esrrb_chip_across_esrrb_motif<-plot_chipnexus_across_motifs(motif=resize(esrrb_motif_instances, 1), 
+                                                            title = "Esrrb ChIP at Esrrb Motif \n(Non BPNet)", upstream = 500, downstream = 500, ylim=c(-.015, .015),
+                                                            sample = bw.list$esrrb)
+print(esrrb_chip_across_esrrb_motif)
+```
+
+### Get PWM motif
+
+```{r sfig5b-esrrb-classic-motif-logo}
+esrrb_motif_instances_subset<-esrrb_motif_instances
+esrrb_motif_instances_subset$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, esrrb_motif_instances_subset)
+esrrb_motif_instances_pwm<-PWM(esrrb_motif_instances_subset$seq, type="prob")
+motif <- new("pcm", mat=as.matrix(esrrb_motif_instances_pwm), name="bin_SOLEXA")
+plot(motif)
+```
+
+# Validate 3 Nanog motifs, Sox2 and Pbx returned by TF-MoDISco
+
+We want to validate the 3 Nanog motifs are Nanog-specific, showing also that Sox2 and Pbx serve as a positive control where Nanog is not specifically bound.
+
+## Import Nanog variants
+
+The three Nanog variant motifs should be imported and aligned to their TCA components.
+ 
+Nanog 1: Canonical TCA at 6bp in
+Nanog 4: TTT 10bp in
+Nanog 5: Low affinity TCA 9bp in
+
+```{r import nanog motifs}
+reshape_motifs<-function(gr, reposition_by){
+  is_pos<-strand(gr)=="+"
+  gr[is_pos]<-IRanges::shift(gr[is_pos], shift=reposition_by)
+  gr[!is_pos]<-IRanges::shift(gr[!is_pos], shift=-reposition_by)
+  gr
+}
+
+#import and trim motifs
+nanog_1<-import(seqlet_coordinates_filepath) %>% subset(., name=="Nanog_1") 
+nanog_1$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, nanog_1)
+nanog_1_trimmed<-reshape_motifs(nanog_1 %>% resize(width=1, fix="start"), reposition_by = 5)
+
+nanog_4<-import(seqlet_coordinates_filepath) %>% subset(., name=="Nanog_4") 
+nanog_4$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, nanog_4)
+nanog_4_trimmed<-reshape_motifs(nanog_4 %>% resize(width=1, fix="start"), reposition_by = 10)
+
+#Switch strand for nanog_4, it is reverse complemented
+nanog_4_rev<-nanog_4 
+strand(nanog_4_rev[strand(nanog_4)=="+"])<-"-"
+strand(nanog_4_rev[strand(nanog_4)=="-"])<-"+"
+nanog_4_trim_rev<-reshape_motifs(nanog_4_rev %>% resize(width=1, fix="start"), reposition_by = 13)
+
+nanog_5<-import(seqlet_coordinates_filepath) %>% subset(., name=="Nanog_5") 
+nanog_5$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, nanog_5)
+nanog_5_trimmed<-reshape_motifs(nanog_5 %>% resize(width=1, fix="start"), reposition_by = 11)
+
+#Combine
+nanog_trimmed_motifs_aligned_to_TCA<-c(nanog_1_trimmed, nanog_4_trim_rev, nanog_5_trimmed)
+```
+
+`nanog_trimmed_motifs_aligned_to_TCA` are a single nucleotide wide occupying the T in TCA. 
+
+The sequence is (relative to Nanog_4): GGAAATGGGC?A*T*CAA
+
+### Resize to motif distance
+
+Once aligned, resize to the correct motif distance
+
+```{r nanog resize to motif distance}
+nanog_1_motifs<-resize(resize(nanog_1_trimmed, 13, "end"), 16, "start")
+nanog_4_motifs<-resize(resize(nanog_4_trim_rev, 13, "end"), 16, "start")
+nanog_5_motifs<-resize(resize(nanog_5_trimmed, 13, "end"), 16, "start")
+```
+
+## Import Sox2 motif
+
+We will plot the Sox2 motif from the Sox2 run (pattern 1), as it is represented in the manuscript in Figure 4.
+
+```{r import sox2 motif}
+sox2_1_motifs<-import(seqlet_coordinates_filepath) %>% subset(., name=="Nanog_3") 
+sox2_1_motifs$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, sox2_1_motifs)
+```
+
+## Import Pbx motif
+
+### Find Pbx motif locations across genome through sequence match
+
+```{r motif locations, eval=F}
+pbx_motif_across_genome <- DNAString("TGAKTGACAGG") %>% 
+  vmatchPattern(., BSgenome.Mmusculus.UCSC.mm10, max.mismatch =0, fixed = "subject") 
+saveRDS("data/rdata/motif_locations/pbx_TGAKTGACAGG_motif_instances_0_mm.rds")
+```
+
+## Compute top scoring Pbx motif locations 
+
+```{r import pbx motif}
+pbx_motif_instances<-readRDS("data/rdata/motif_locations/pbx_TGAKTGACAGG_motif_instances_0_mm.rds") %>% 
+  keepStandardChromosomes(species="Mus_musculus", pruning.mode = "coarse")
+pbx_motif_instances$pbx_score<-regionMeans(resize(pbx_motif_instances, 100, "center"), bw.list$pbx$pos) + 
+  abs(regionMeans(resize(pbx_motif_instances, 100, "center"), bw.list$pbx$neg))
+pbx_motif_instances<-pbx_motif_instances[order(pbx_motif_instances$pbx_score, decreasing=T)][1:5000] 
+```
+
+## Collect motifs
+
+```{r collect motifs together}
+motifs.list<-list(Nanog = (nanog_1_motifs %>% granges),
+                  Nanog_mix = (nanog_5_motifs %>% granges),
+                  Nanog_alt = (nanog_4_motifs %>% granges),
+                  Sox2 = (sox2_1_motifs %>% granges),
+                  Pbx = (pbx_motif_instances %>% granges))
+lapply(motifs.list, length)
+```
+
+## Generate metapeaks 
+
+Across 5 motifs and 3 factors, generate 15 metapeaks.
+
+```{r metapeaks across motifs}
+metapeaks<-lapply(names(motifs.list), function(x){
+  mclapply(c("pbx", "sox2", "nanog"), function(y){
+    message(x, "_", y)
+    metapeak<-exo_metapeak(gr = resize(motifs.list[[x]], 1), 
+                 sample = bw.list[[y]],
+                 upstream = 50, downstream = 50)
+    metapeak$fac<-y
+    metapeak$motif<-x
+    metapeak
+  }, mc.cores=3) %>% rbindlist
+}) %>% rbindlist
+```
+
+## Plot metapeaks
+
+```{r sfig5cd-nanog-pbx-sox2}
+metapeaks$fac<-factor(metapeaks$fac, levels=c("nanog", "pbx", "sox2"))
+metapeaks$motif<-factor(metapeaks$motif)
+metapeaks$strand<-factor(metapeaks$strand)
+
+motif_widths<-lapply(names(motifs.list), function(x) data.frame(motif=x, width=width(motifs.list[[x]])[1])) %>% rbindlist()
+
+g_with_subheaders<-ggplot(metapeaks)+
+  geom_rect(data=motif_widths, aes(xmin=0, xmax=width, ymin=-Inf, ymax=Inf), alpha=.2, fill="gray50")+
+  geom_line(aes(x=tss_distance, y=reads, color=fac, group=interaction(fac, strand)))+
+  scale_color_manual(name="Factor", values=c("#A68D1E", "#ED693B", "#3B3F91"))+
+  scale_x_continuous(name="Positive relative to motif start (bp)")+
+  scale_y_continuous(name="RPM")+
+  facet_grid(. ~ motif)+
+  theme_classic(base_size = 8)
+print(g_with_subheaders)
+```
+
+#Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+

@@ -1,0 +1,90 @@
+"""
+Compare to chexmix
+
+# Run with `snakemake`
+
+"""
+from pathlib import Path
+
+tfs = ['Oct4', 'Sox2', 'Nanog', 'Klf4']
+CHEXMIX_VERSION = '0.3'
+
+# CHANGE if not on Sherlock
+ddir = Path('/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/')
+sdir = Path('/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/software/')
+NEXUS_PIPELINE_DIR = '/srv/scratch/amr1/chip-nexus-pipeline/cromwell-executions/chip_nexus'
+#----
+
+FASTA_FILE = ddir / 'mm10_no_alt_analysis_set_ENCODE.fasta'
+FASTA_FILES = ddir / 'fastas'
+GENOME_FILE = ddir / 'mm10.chrom.sizes'
+GENOME_FILE_FILT = ddir / 'mm10.filtered.info'
+BLACKLIST_FILE_BED = ddir / 'mm10.blacklist.bed'
+BAM_DIR = ddir / 'chip-nexus/pool_filt_bam'
+
+
+rule all:
+    input:
+        # Bam files
+        expand(os.path.join(ddir, 'chip-nexus/{tf}/pool_filt.bam'), tf=tfs),
+        # Chexmix
+        expand('output/chexmix/{tf}/ChExMix_{tf}_results.html', tf=tfs),
+
+
+rule get_chexmix:
+    """
+    """
+    output:
+        chexmix = os.path.join(sdir, f'chexmix/chexmix_v{CHEXMIX_VERSION}.jar'),
+        mouse_back = os.path.join(sdir, 'chexmix/mouse.back')
+    shell:
+        """
+        wget http://lugh.bmb.psu.edu/software/chexmix/chexmix_v{CHEXMIX_VERSION}.jar -O {output.chexmix}
+        wget http://lugh.bmb.psu.edu/software/chexmix/backgrounds/mouse.back -O {output.mouse_back}
+        """
+
+rule merge_bams:
+    """Merge the bam files
+    """
+    output:
+        bam = os.path.join(ddir, 'chip-nexus/{tf}/pool_filt.bam')
+    params:
+        tfl = lambda wildcards: wildcards.tf.lower()
+    shell:
+        """
+        samtools merge {output.bam} \
+          {NEXUS_PIPELINE_DIR}/{params.tfl}/call-filter/shard-*/execution/mesc_{params.tfl}_nexus_*.trim.merged.nodup.bam
+
+        samtools index {output.bam}
+        """
+
+rule chexmix:
+    """Run Chexmix
+
+    http://mahonylab.org/software/chexmix/
+    """
+    input:
+        chexmix = os.path.join(sdir, f'chexmix/chexmix_v{CHEXMIX_VERSION}.jar'),
+        # fasta = FASTA_FILE,
+        background = os.path.join(sdir, 'chexmix/mouse.back'),
+        blacklist = BLACKLIST_FILE_BED,
+        genome = GENOME_FILE_FILT,
+        bam = os.path.join(ddir, 'chip-nexus/{tf}/pool_filt.bam')
+    output:
+        chexmix = 'output/chexmix/{tf}/ChExMix_{tf}_results.html'
+    resources:
+        mem_mb = 128000,  # 64 GB
+        runtime = 60 * 48,  # 48 hours
+    threads: 10
+    shell:
+        """
+        java -Xmx128G -jar {input.chexmix} \
+          --geninfo {input.genome} \
+          --threads {threads} \
+          --expt {input.bam} \
+          -format bam \
+          --back {input.background} \
+          --exclude {input.blacklist} \
+          --seq {FASTA_FILES} \
+          --out output/chexmix/{wildcards.tf}/
+        """

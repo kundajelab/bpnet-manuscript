@@ -1,0 +1,18 @@
+b_loss_weight=0
+c_loss_weight=10
+p_loss_weight=1
+filters=64
+tconv_kernel_size=50
+lr=0.004
+n_dil_layers=9
+train.batch_size=128
+merge_profile_reg=False
+dataspec='ChIP-seq.dataspec.yml'
+
+batchnorm=False
+
+padding='same'
+seq_width = 1000
+peak_width = 1000
+
+tasks = ['Oct4', 'Sox2', 'Nanog']

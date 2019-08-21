@@ -1,0 +1,416 @@
+---
+title: "fig4ef_sfig5ef-tfiiic-bbox: TFIIIC B-box"
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+Given the TFIIIC B-box, we seek to observe the Oct4 binding dynamics surrounding this motif returned by TF-MoDISco. 
+
+The B-box bound by the TFIIIC POLIII subunit. Typically, the B-box will be located across genes and not be upstream or downstream. We will look at regions that contain tRNA genes and the 5S rRNA gene to see what kind of overlap there is.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+source("https://bioconductor.org/biocLite.R")
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
+library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2019_bpnet/")
+options(knitr.figure_dir="18-fig4ef_sfig5ef-tfiiic-bbox", width=16, height=20)
+
+#Lab sources
+source("rscripts/granges_common.r")
+source("rscripts/knitr_common.r")
+source("rscripts/caching.r")
+source("rscripts/multiplot.R")
+source("rscripts/metapeak_functions.R")
+source("rscripts/metapeak_common.r")
+
+#Specific packages
+library(stringr)
+library(GenomicScores) #phastCONS
+library(ggrepel)
+library(TxDb.Mmusculus.UCSC.mm10.ensGene)
+library(mygene)
+library(ggforce)
+library(grid)
+library(gtable)
+library(gridExtra)
+
+#Custom fxn
+simpleCap <- function(x) {
+  s <- strsplit(x, " ")[[1]]
+  paste(toupper(substring(s, 1,1)), substring(s, 2),
+      sep="", collapse=" ")
+}
+```
+
+# Define data paths
+
+```{r define data}
+#BED file with coordinates of each seqlet location returned by TF-MoDISco.
+seqlet_coordinates_filepath <- "data/bed/seqlet_coordinates.bed" 
+
+#BED file with coordinates of each predicted tRNA site obtained from http://gtrnadb.ucsc.edu/, see the tRNA section below for details
+trna_coordinates_filepath <- "data/bed/mm10-tRNAs.bed" #
+
+#ChIP-nexus samples were combined across replicates, blacklisted according to mm10, and normalized to reads per million (RPM). 
+sample.list=list(oct4=list(pos="data/bw/nexus/mesc_oct4_nexus_combined_filtered_normalized_positive.bw",
+                           neg="data/bw/nexus/mesc_oct4_nexus_combined_filtered_normalized_negative.bw"))
+```
+
+# Prepare Bbox seqlet data
+
+## Get PhastCon scores across each seqlet
+
+```{r prepare data, eval=F}
+gscores_mm10 <- getGScores("phastCons60way.UCSC.mm10")
+
+#Select all regions containing this motif
+bbox<-import(seqlet_coordinates_filepath) %>% subset(., name=="Klf4_11" | name=="Oct4_5" | name=="Sox2_3")
+bbox_with_cons<-gscores(x = gscores_mm10, ranges = bbox)
+
+seqlevels(bbox_with_cons)<-seqlevels(TxDb.Mmusculus.UCSC.mm10.ensGene)
+seqinfo(bbox_with_cons)<-seqinfo(TxDb.Mmusculus.UCSC.mm10.ensGene)
+saveRDS(bbox_with_cons, "data/rdata/bbox/b_box_regions_with_phastcons_scores.granges.rds")
+```
+
+## Trim and align different bbox seqlets
+
+We will need palindromic regions that allow for B-box consolidation across motifs with different flanks.
+
+```{r bbox trimmed, eval=F}
+gscores_mm10 <- getGScores("phastCons60way.UCSC.mm10")
+bbox_regions<-readRDS("data/rdata/bbox/rdata/b_box_regions_with_phastcons_scores.granges.rds")
+
+bbox_regions_trimmed<-lapply(unique(bbox_regions$name), function(x){
+  gr_orig<-subset(bbox_regions, name==x) #create original granges as reference for start/end sites
+  gr<-subset(bbox_regions, name==x)
+  if(x=="Oct4_5"){
+    offset<-4
+    start(gr[which(strand(gr)=="+")])<-start(gr_orig[which(strand(gr)=="+")]) + offset #if strand(gr) is +
+    end(gr[which(strand(gr)=="+")])<-start(gr_orig[which(strand(gr)=="+")]) + offset + 11
+    start(gr[which(strand(gr)=="-")])<-end(gr_orig[which(strand(gr)=="-")]) - offset - 11 #if strand(gr) is -
+    end(gr[which(strand(gr)=="-")])<-end(gr_orig[which(strand(gr)=="-")]) - offset
+  }
+  
+  if(x=="Sox2_3"){
+    offset<-18
+    start(gr[which(strand(gr)=="+")])<-start(gr_orig[which(strand(gr)=="+")]) + offset #if strand(gr) is +
+    end(gr[which(strand(gr)=="+")])<-start(gr_orig[which(strand(gr)=="+")]) + offset + 11
+    start(gr[which(strand(gr)=="-")])<-end(gr_orig[which(strand(gr)=="-")]) - offset - 11 #if strand(gr) is -
+    end(gr[which(strand(gr)=="-")])<-end(gr_orig[which(strand(gr)=="-")]) - offset
+  }  
+  
+  if(x=="Klf4_11"){
+    offset<-12
+    start(gr[which(strand(gr)=="+")])<-start(gr_orig[which(strand(gr)=="+")]) + offset #if strand(gr) is +
+    end(gr[which(strand(gr)=="+")])<-start(gr_orig[which(strand(gr)=="+")]) + offset + 11
+    start(gr[which(strand(gr)=="-")])<-end(gr_orig[which(strand(gr)=="-")]) - offset - 11 #if strand(gr) is -
+    end(gr[which(strand(gr)=="-")])<-end(gr_orig[which(strand(gr)=="-")]) - offset
+  }  
+  
+  return(gr)
+}) %>% as(Class="GRangesList") %>% unlist
+bbox_regions_trimmed_comb<-bbox_regions_trimmed %>% resize(width=1, "start") %>% reduce %>% resize(width=12, "start")
+bbox_regions_trimmed_comb_with_cons<-gscores(x = gscores_mm10, ranges = bbox_regions_trimmed_comb)
+
+seqlevels(bbox_regions_trimmed_comb_with_cons)<-seqlevels(TxDb.Mmusculus.UCSC.mm10.ensGene)
+seqinfo(bbox_regions_trimmed_comb_with_cons)<-seqinfo(TxDb.Mmusculus.UCSC.mm10.ensGene)
+saveRDS(bbox_regions_trimmed_comb_with_cons, "data/rdata/bbox/b_box_regions_trimmed_combined_with_phastcons_scores.granges.rds")
+```
+
+Read in B-box regions. Read in both (1) the raw seqlet locations and (2) the regions that are trimmed to the palindromic portion of the B-box [GGGTTCGAACCC].
+
+In terms of trimming, the following motifs were trimmed as such:
+Oct4_5: positions 5-16
+Sox2_3: positions 19-30
+Klf4_11: positions 12-23
+
+```{r read in bbox}
+bbox_regions<-readRDS("data/rdata/bbox/b_box_regions_with_phastcons_scores.granges.rds")
+bbox_regions_trimmed_comb_with_cons<-readRDS("data/rdata/bbox/b_box_regions_trimmed_combined_with_phastcons_scores.granges.rds")
+mm10_genes<-genes(TxDb.Mmusculus.UCSC.mm10.ensGene) 
+```
+
+# Overlap bbox with different RNA types
+
+## 5S rRNAs
+
+Do any B-box seqlets occur over the 5S rRNA gene?
+
+```{r 5srrna}
+rrna_5s<-mm10_genes["ENSMUSG00000096406"]
+findOverlaps(resize(rrna_5s, 100000, "center"), bbox_regions, ignore.strand=T)
+```
+
+No B-box motif is located within 100kb of this gene.
+
+## tRNAs
+
+For the identification of tRNAs we will be using tRNAscan-SE. According to documentation found on UCSC: 
+
+"tRNAscan-SE is an integrated program that uses tRNAscan (Fichant) and an A/B box motif detection algorithm (Pavesi) as pre-filters to obtain an initial list of tRNA candidates. The program then filters these candidates with a covariance model-based search program COVE (Eddy) to obtain a highly specific set of primary sequence and secondary structure predictions that represent 99-100% of true tRNAs with a false positive rate of fewer than 1 per 15 gigabases.  
+
+What does the tRNAscan-SE score mean? Anything with a score above 20 bits is likely to be derived from a tRNA, although this does not indicate whether the tRNA gene still encodes a functional tRNA molecule (i.e. tRNA-derived SINES probably do not function in the ribosome in translation). Vertebrate tRNAs with scores of >60.0 (bits) are likely to encode functional tRNA genes, and those with scores below ~45 have sequence or structural features that indicate they probably are no longer involved in translation. tRNAs with scores between 45-60 bits are in the "grey" zone, and may or may not have all the required features to be functional. In these cases, tRNAs should be inspected carefully for loss of specific primary or secondary structure features (usually in alignments with other genes of the same isotype), in order to make a better educated guess. These rough score range guides are not exact, nor are they based on specific biochemical studies of atypical tRNA features, so please treat them accordingly.  
+
+Please note that tRNA genes marked as "Pseudo" are low scoring predictions that are mostly pseudogenes or tRNA-derived elements. These genes do not usually fold into a typical cloverleaf tRNA secondary structure and the provided images of the predicted secondary structures may appear rotated."
+
+Kudos: http://rohsdb.cmb.usc.edu/GBshape/cgi-bin/hgTables?db=mm10&hgta_group=genes&hgta_track=tRNAs&hgta_table=tRNAs&hgta_doSchema=describe+table+schema
+Kudos: http://gtrnadb.ucsc.edu/
+
+```{r nearest trna overlaps }
+#Overlap between tRNAs
+trnas<-import(trna_coordinates_filepath)
+trna_and_bbox_overlap<-findOverlaps(trnas, bbox_regions_trimmed_comb_with_cons, ignore.strand=T)
+overlap_percent<-round(length(unique(trna_and_bbox_overlap@to))/length(bbox_regions_trimmed_comb_with_cons)*100, 1) #29.7% overlap with predicted tRNAs
+overlap_percent_df<-data.frame(overlap_pos=c("none", "tRNA gene overlap"), text=c(100-overlap_percent, overlap_percent))
+overlap_percent_df
+```
+
+# Conservation of tRNA-overlapping and no-overlapping bbox
+
+```{r sfig5f-tfiiic-bbox}
+#Does conservation correlate with overlap? We will now redo this analysis using the same width in conservation (the palindromic portion).
+bbox_regions_trimmed_comb_with_cons$overlap<-"none"
+bbox_regions_trimmed_comb_with_cons$overlap[unique(trna_and_bbox_overlap@to)]<-"tRNA gene overlap"
+bbox_regions_overlap_check<-as.data.frame(bbox_regions_trimmed_comb_with_cons)
+bbox_plot<-ggplot(bbox_regions_overlap_check, aes(overlap, default))+
+  geom_violin(aes(fill=overlap, color=overlap), scale="area", alpha=.4)+
+  geom_sina(aes(color=overlap), scale = T, size=.5, maxwidth=.8)+
+  geom_text(data=overlap_percent_df, mapping=aes(x=overlap_pos, y=-.05, label=text))+
+  scale_fill_manual(values=c("gray90", "#bf99bf"))+
+  scale_color_manual(values=c("gray30", "#5b395b"))+
+  ggtitle("PhastCon scores versus tRNA overlap")+
+  ylab("PhastCon Score")+
+  theme_classic()+
+  theme(text=element_text(size=20), axis.title.x=element_blank(), legend.position="none")
+print(bbox_plot)
+#ggsave("figures/bbox_phastcon_trna_overlaps.pdf", bbox_plot, height=4, width=2.4)
+```
+
+# tRNA-overlapping bbox versus tRNA class
+
+## Amino acid and anticodon summary
+
+```{r fig4e-tfiiic-bbox}
+#Prepare df
+trnas_overlapping_with_bbox<-trnas[trna_and_bbox_overlap@from]
+trnas_overlapping_with_bbox_df<-as.data.frame(trnas_overlapping_with_bbox)
+
+#Split the name of the tRNA by a hyphen
+trna_attributes<-lapply(trnas_overlapping_with_bbox_df$name, function(x){
+  strsplit(x, "-") %>% unlist %>% as.data.frame() %>% transpose
+}) %>% rbindlist()
+colnames(trna_attributes)<-c("RNA_type", "aa", "anticodon", "genetic_level1", "genetic_level2")
+trnas_overlapping_with_bbox_df <- cbind(trnas_overlapping_with_bbox_df, trna_attributes)
+trnas_overlapping_with_bbox_df$short_name<-paste(trnas_overlapping_with_bbox_df$aa, trnas_overlapping_with_bbox_df$anticodon, sep="-") #integrate amino acids
+
+#Summarize
+aa_summary<-table(trnas_overlapping_with_bbox_df$short_name) %>% as.data.frame
+aa_summary$Var1<-factor(aa_summary$Var1, levels=rev(aa_summary$Var1[order(aa_summary$Freq, decreasing=T)]))
+aa_summary$freq_ratio<-aa_summary$Freq/sum(aa_summary$Freq)
+aa_summary$type<-"actual_distribution"
+aa_summary<-subset(aa_summary, Var1 != "Und" & Var1 != "SeC" & Var1 != "Sup") #Drop unknown levels
+
+trna_frequency_plot<-ggplot(aa_summary, aes(Var1, Freq))+
+  geom_bar(stat="identity", fill="#d1afcf", color="#5c2d53")+
+  scale_y_continuous(breaks=seq(0, 13, 2), name="Copy count")+
+  scale_x_discrete(name="Amino Acid")+
+  #coord_flip()+
+  theme_classic()+
+  theme(text=element_text(size=8), axis.text.x=element_text(angle=90, hjust=1, vjust=.5), legend.position="none")
+print(trna_frequency_plot)
+```
+
+# Amino acid summary 
+
+```{r fig4f-tfiiic-bbox}
+aa_summary<-table(trnas_overlapping_with_bbox_df$aa) %>% as.data.frame
+aa_summary$Var1<-factor(aa_summary$Var1, levels=aa_summary$Var1[order(aa_summary$Freq, decreasing=F)])
+aa_summary<-subset(aa_summary, Var1 != "Und" & Var1 != "SeC" & Var1 != "Sup") #Drop unknown levels
+
+ggplot(aa_summary, aes(Var1, Freq))+
+  geom_bar(stat="identity")+
+  scale_y_continuous(name="Frequency")+
+  scale_x_discrete(name="Anticodon")+
+  coord_flip()+
+  ggtitle("tRNA overlapping B-box amino acid frequency")+
+  theme_classic()+
+  theme(text=element_text(size=20), legend.position="none")
+```
+
+# Testing presence of Oct1 (Oct4_like) upstream
+
+Some models claim that Oct1 can bind upstream of TFIIIC to a binding site. Then, the DNA will loop and the Oct1 will be recruited to the tRNA start site. In order to validate this model, we want to check to see if we can find any Oct4-specific binding sites upstream of the tRNA up to 1kb.
+
+```{r search for oct4 binding sites}
+trnas_overlapping_with_bbox_upstream<-trnas_overlapping_with_bbox %>% resize(width=1, fix="start") %>% resize(width=1000, fix="end")
+
+#Oct4-only
+  matches_f<-vmatchPattern(pattern = "ATGC", subject = getSeq(BSgenome.Mmusculus.UCSC.mm10, trnas_overlapping_with_bbox_upstream), max.mismatch = 0, min.mismatch = 0) %>% as.list
+  matches_r<-vmatchPattern(pattern = reverseComplement(DNAString("GCAT")), subject = getSeq(BSgenome.Mmusculus.UCSC.mm10, trnas_overlapping_with_bbox_upstream), max.mismatch = 0, min.mismatch = 0) %>% as.list
+  names(matches_f)<-1:length(matches_f)
+  names(matches_r)<-1:length(matches_r)
+  matches_df<-rbind(lapply(matches_f, function(x) as.data.frame(x)) %>% rbindlist(idcol = "row"), lapply(matches_r, function(x) as.data.frame(x)) %>% rbindlist(idcol = "row"))
+  
+  #Number of regions that contain at least 1 match
+  length(unique(matches_df$row))/length(trnas_overlapping_with_bbox_upstream)
+  
+  # #distribution of start sites
+  # ggplot(matches_df, aes(-start))+
+  #   geom_histogram(binwidth=1)
+
+#Oct-Oct
+  OO_matches_f<-vmatchPattern(pattern = reverseComplement(DNAString("TGCATATGCAT")), subject = getSeq(BSgenome.Mmusculus.UCSC.mm10, trnas_overlapping_with_bbox_upstream), max.mismatch = 2, min.mismatch = 0) %>% as.list
+  OO_matches_r<-vmatchPattern(pattern = reverseComplement(DNAString("ATGCATATGCA")), subject = getSeq(BSgenome.Mmusculus.UCSC.mm10, trnas_overlapping_with_bbox_upstream), max.mismatch = 2, min.mismatch = 0) %>% as.list
+  names(OO_matches_f)<-1:length(OO_matches_f)
+  names(OO_matches_r)<-1:length(OO_matches_r)
+  OO_matches_df<-rbind(lapply(OO_matches_f, function(x) as.data.frame(x)) %>% rbindlist(idcol = "row"), lapply(OO_matches_r, function(x) as.data.frame(x)) %>% rbindlist(idcol = "row"))
+   
+  #Number of regions that contain at least 1 match
+  length(unique(OO_matches_df$row))/length(trnas_overlapping_with_bbox_upstream)
+  # 
+  # #distribution of start sites
+  # ggplot(OO_matches_df, aes(-start))+
+  #   geom_histogram(binwidth=1)
+
+```
+
+91% of the regions contain at least 1 Oct4 site and 16% of them contain an Oct-Oct motif (with up to 2 mm). This match was investigated on both strands.
+However, the matches did not occur in any specific location.
+
+# Reorient the Bbox motif relative to the tRNA
+
+If we flip the motifs to the orientation of the tRNAs, this will help clarify the strands.
+
+```{r reassign strand orientation}
+#Reassign the strand to match tRNA orientation
+bbox_overlap_str_reass<-bbox_regions_trimmed_comb_with_cons[unique(trna_and_bbox_overlap@to)]
+strand(bbox_overlap_str_reass)<-strand(trnas[trna_and_bbox_overlap@from]) #reassign the strand
+
+#Correct GRanges sequence alignment based on specific motif parameters
+strand_is_pos<-which(strand(bbox_overlap_str_reass)=="+")
+start(bbox_overlap_str_reass[strand_is_pos])<-start(bbox_overlap_str_reass[strand_is_pos]) + 1
+```
+
+## Plot Oct4 with strand reorientation
+
+If we flip Oct4 to the orientation of the tRNAs that the B-box occurs across, can we consolidate the profile?
+
+```{r fig4e-tfiiic-bbox-profile}
+#Motif combined and simplified
+oct4_profile_plot_combined_summarized<-exo_metapeak(gr = resize(subset(bbox_overlap_str_reass), 1, "start"), 
+               sample=sample.list$oct4, 
+               upstream=200, downstream=200)
+nexus_profiles_summarized<-ggplot(oct4_profile_plot_combined_summarized, aes(tss_distance, reads, group=strand))+
+    geom_rect(aes(ymin=-Inf, ymax=Inf, xmin=0, xmax = width(bbox_overlap_str_reass)[1]), alpha=.1, fill="gray90", color="transparent")+
+    geom_line(size=1, color="#9F1D20")+
+    #geom_hline(yintercept=0)+
+    scale_alpha_manual(values = c(1, .5), name="Strand Assignment")+
+    scale_y_continuous(name="Normalized reads")+
+    scale_x_continuous(name="Position w.r.t. motif start", breaks = seq(-200, 200, 50))+
+    ggtitle("B-box with tRNA-assigned strand")+
+    theme_classic()+
+    theme(text=element_text(size=20), strip.background = element_blank(), strip.text = element_text(color="black", face="bold"))
+print(nexus_profiles_summarized)
+```
+
+## Map tRNA coordinates relative to the Bbox motifs
+
+If we flip Oct4 to the orientation of the tRNAs that the B-box occurs across, can we understand the distance between the motif and the tRNA start site?
+
+```{r trna frequency}
+#Where is the tRNA gene start site WRT to this? (trna start - b box)
+bbox_overlapping_with_trnas<-bbox_regions_trimmed_comb_with_cons[unique(trna_and_bbox_overlap@to)]
+bbox_overlapping_with_trnas$distance_trna_start_to_bbox<-start(resize(trnas[(trna_and_bbox_overlap@from)], 1, "start")) - start(resize(bbox_overlap_str_reass, 1, "start"))
+bbox_overlapping_with_trnas$distance_trna_end_to_bbox<-end(resize(trnas[(trna_and_bbox_overlap@from)], 1, "end")) - start(resize(bbox_overlap_str_reass, 1, "start"))
+
+bbox_overlapping_with_trnas_distance_df<-bbox_overlapping_with_trnas %>% as.data.frame()
+bbox_overlapping_with_trnas_distance_df$strand_of_trna<-strand(trnas[(trna_and_bbox_overlap@from)]) %>% as.character() #The distance is entirely strand specific
+bbox_overlapping_with_trnas_distance_df$dist_corrected<-bbox_overlapping_with_trnas$distance_trna_start_to_bbox
+bbox_overlapping_with_trnas_distance_df$dist_corrected[which(strand(bbox_overlap_str_reass)=="-")]<-bbox_overlapping_with_trnas_distance_df$dist_corrected[which(strand(bbox_overlap_str_reass)=="-")] * -1 #If it is on the negative strand, then correct the strand for plotting
+
+bbox_overlapping_with_trnas_distance_df$end_dist_corrected<-bbox_overlapping_with_trnas$distance_trna_end_to_bbox
+bbox_overlapping_with_trnas_distance_df$end_dist_corrected[which(strand(bbox_overlap_str_reass)=="-")]<-bbox_overlapping_with_trnas_distance_df$end_dist_corrected[which(strand(bbox_overlap_str_reass)=="-")] * -1
+```
+
+## Plot Bbox sequences with strand reorientation
+
+```{r fig4e-tfiiic-bbox-sequence}
+#Obtain start site markers
+trna_markers<-data.frame(row=1:length(bbox_overlapping_with_trnas), start_dist_from_motif=bbox_overlapping_with_trnas_distance_df$dist_corrected, end_dist_from_motif = bbox_overlapping_with_trnas_distance_df$end_dist_corrected)
+trna_markers$row<-factor(trna_markers$row, levels=trna_markers$row[order(trna_markers$start_dist_from_motif)])
+
+#Reobtain sequences
+seq_df<-plot_sequence(gr = resize(bbox_overlap_str_reass, 1, "start"), genome = BSgenome.Mmusculus.UCSC.mm10, 
+                      title = "B-box motifs with strand reassigned to tRNAs", window = 201, cluster = F, subset=F, show=F)$df #Do not cluster for easy factor assignment
+seq_df$row<-factor(seq_df$row, levels=levels(trna_markers$row))
+
+#Plot sequences with tRNA ends overlaid
+seq_with_ss_overlay<-ggplot(seq_df)+
+    geom_tile(aes(x=position, y=row, fill=nt))+
+    #geom_point(data=trna_start_markers, aes(x=dist_from_motif, y=row), color="black", size=1, shape=15)+
+    geom_tile(data=trna_markers, aes(x=start_dist_from_motif, y=row), color="black", fill="black")+
+    geom_tile(data=trna_markers, aes(x=end_dist_from_motif, y=row), color="white", fill="white")+
+    xlab("Position WRT Motif Start")+
+    ylab("Region")+
+    scale_fill_manual(values = c("#36982F", "#402CFD", "#FFB530", "#FC3437"), name="Nucleotide")+
+    theme_classic()+
+    theme(text=element_text(size=20), legend.position="bottom", axis.text.y = element_blank(), axis.ticks.y = element_blank())
+print(seq_with_ss_overlay)
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

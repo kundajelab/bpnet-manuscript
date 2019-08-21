@@ -1,0 +1,167 @@
+---
+title: "fig4d: Nanog motif variant analysis"
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+We have observed that three motifs returned by BPnet and TF-MODISCO form a gradient of Nanog motif varieties. We visualize this on a closer scale.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+source("https://bioconductor.org/biocLite.R")
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
+library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2019_bpnet/")
+options(knitr.figure_dir="17-fig4d-nanog-variants", width=16, height=20)
+
+#Lab sources
+source("rscripts/granges_common.r")
+source("rscripts/metapeak_common.r")
+source("rscripts/knitr_common.r")
+source("rscripts/caching.r")
+source("rscripts/multiplot.R")
+
+#Specific packages
+library(stringr)
+
+```
+
+# Define data paths
+
+```{r define data}
+#BED file with coordinates of each seqlet location returned by TF-MoDISco.
+seqlet_coordinates_filepath <- "data/bed/seqlet_coordinates.bed" 
+
+#ChIP-nexus samples were combined across replicates, blacklisted according to mm10, and normalized to reads per million (RPM). 
+bw.list<-list(nanog=list(pos="data/bw/nexus/mesc_nanog_nexus_combined_filtered_normalized_positive.bw",
+                         neg="data/bw/nexus/mesc_nanog_nexus_combined_filtered_normalized_negative.bw"))
+```
+
+# Import Nanog motifs
+
+Import the Nanog motifs and then align them to the TCA for comparison plots.
+Nanog 1: Canonical TCA at 6bp in
+Nanog 4: TTT 10bp in
+Nanog 5: Low affinity TCA 9bp in
+
+```{r import nanog motifs}
+reshape_motifs<-function(gr, reposition_by){
+  is_pos<-strand(gr)=="+"
+  gr[is_pos]<-IRanges::shift(gr[is_pos], shift=reposition_by)
+  gr[!is_pos]<-IRanges::shift(gr[!is_pos], shift=-reposition_by)
+  gr
+}
+
+#import and trim motifs
+nanog_1<-import(seqlet_coordinates_filepath) %>% subset(., name=="Nanog_1") 
+nanog_1$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, nanog_1)
+nanog_1_trimmed<-reshape_motifs(nanog_1 %>% resize(width=1, fix="start"), reposition_by = 5)
+
+nanog_4<-import(seqlet_coordinates_filepath) %>% subset(., name=="Nanog_4") 
+nanog_4$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, nanog_4)
+nanog_4_trimmed<-reshape_motifs(nanog_4 %>% resize(width=1, fix="start"), reposition_by = 10)
+
+#Switch strand for nanog_4, it is reverse complemented
+nanog_4_rev<-nanog_4 
+strand(nanog_4_rev[strand(nanog_4)=="+"])<-"-"
+strand(nanog_4_rev[strand(nanog_4)=="-"])<-"+"
+nanog_4_trim_rev<-reshape_motifs(nanog_4_rev %>% resize(width=1, fix="start"), reposition_by = 13)
+
+nanog_5<-import(seqlet_coordinates_filepath) %>% subset(., name=="Nanog_5") 
+nanog_5$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, nanog_5)
+nanog_5_trimmed<-reshape_motifs(nanog_5 %>% resize(width=1, fix="start"), reposition_by = 11)
+
+#Combine
+nanog_motifs<-c(nanog_1, nanog_4, nanog_5)
+nanog_trimmed_motifs_all_positive<-c(nanog_1_trimmed, nanog_4_trimmed, nanog_5_trimmed)
+nanog_trimmed_motifs_mixed_strand<-c(nanog_1_trimmed, nanog_4_trim_rev, nanog_5_trimmed)
+```
+
+# Generate aggregate signals across each motif
+
+```{r generate aggregate signals}
+nanog_signals_mixed<-lapply(c("Nanog_1", "Nanog_4", "Nanog_5"), function(x){
+  lapply(names(bw.list), function(y){
+    df<-exo_metapeak(gr = resize(subset(nanog_trimmed_motifs_mixed_strand, name==x), 1, "start"), sample = bw.list[[y]])
+    df$fac<-y
+    df$motif<-x
+    df
+  }) %>% rbindlist
+}) %>% rbindlist
+```
+
+# Plot aggregate signals
+
+Nanog_4 is flipped to the negative strand and then aligned to the TCA.
+
+```{r fig4d-nanog-variants}
+limits=40
+nanog_signals_mixed_normalized<-subset(nanog_signals_mixed, fac=="nanog" & tss_distance<=limits & tss_distance>=-limits) %>% group_by(motif) %>% mutate(norm_reads=(reads/max(reads)))#normalize to maximum across motifs and factors
+
+nanog_mixed_combined_plot<-ggplot(nanog_signals_mixed_normalized, aes(tss_distance, reads))+
+  geom_area(aes(fill=motif, group=interaction(strand, motif)), alpha=.5, position="identity")+
+  geom_line(aes(color=motif, group=interaction(strand, motif)), position="identity")+
+  scale_y_continuous(limits=c(-.06, .06), name="Normalized reads")+
+  scale_fill_manual(values=c("#b29b37", "#8a319f", "#319f8a"))+
+  scale_color_manual(values=c("#786825", "#682578", "#257868"))+
+  scale_x_continuous(breaks=seq(-limits, limits, 10), minor_breaks = seq(-limits, limits, 1), name="Position wrt Nanog's TCA")+
+  theme_bw()+
+  theme(text=element_text(size=20))
+print(nanog_mixed_combined_plot)
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,28 @@
+b_loss_weight = 1
+c_loss_weight = 10
+p_loss_weight = 1
+filters = 64
+tconv_kernel_size = 25
+lr = 0.004
+n_dil_layers = 9
+train.batch_size = 128
+merge_profile_reg = False
+dataspec = 'ChIP-nexus.dataspec.yml'
+
+intervals_file = '/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/OSNK.50-percent-overlap.subset-chr19,chr4.100.tsv'
+only_classes = False
+
+batchnorm = False
+
+padding = 'same'
+seq_width = 1000
+
+train.epochs = 1
+
+train.train_epoch_frac = 0.01
+train.valid_epoch_frac = 0.01
+
+train.train_epoch_frac = 1
+train.valid_epoch_frac = 1
+
+tasks = ['Oct4', 'Sox2', 'Nanog', 'Klf4']

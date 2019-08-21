@@ -1,0 +1,34 @@
+# ==================================================================
+# problem.gin
+# --------------------------------------------
+# data
+import basepair
+import basepair.datasets
+import basepair.metrics
+
+valid_chr = ['chr2', 'chr3', 'chr4']
+test_chr = ['chr1', 'chr8', 'chr9']
+
+target_seqlen = 1000
+augment_interval = False  # Will be overriden by gin-train
+profile_bias_pool_size = None
+# seq_width  -> specified from gin-bindings
+# tasks = ['Oct4', 'Sox2', 'Nanog']  -> specified from gin-bindings
+
+train.data = @get_StrandedProfile_datasets2()
+get_StrandedProfile_datasets2.valid_chr = %valid_chr
+get_StrandedProfile_datasets2.test_chr = %test_chr
+get_StrandedProfile_datasets2.peak_width = %target_seqlen
+get_StrandedProfile_datasets2.include_metadata = False
+get_StrandedProfile_datasets2.tasks = %tasks
+get_StrandedProfile_datasets2.taskname_first = True  # so that the output labels will be "{task}/profile"
+get_StrandedProfile_datasets2.exclude_chr = ['chrX', 'chrY']
+get_StrandedProfile_datasets2.profile_bias_pool_size = %profile_bias_pool_size
+get_StrandedProfile_datasets2.augment_interval = %augment_interval
+
+# specified from the CLI
+get_StrandedProfile_datasets2.dataspec = %dataspec
+get_StrandedProfile_datasets2.seq_width = %seq_width
+# ------------------------------------------------------------------------
+train.train_epoch_frac = 1.0
+train.valid_epoch_frac = 1.0

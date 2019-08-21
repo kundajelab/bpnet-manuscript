@@ -1,0 +1,370 @@
+---
+title: "fig3g, sfig4b: Spacing of Motifs across Transposable Elements"
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+Motif pairs occur across transposable elements at different spacing than others. Show this in a histogram (expanded results) and ranked plot format (summarized results).
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+source("https://bioconductor.org/biocLite.R")
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
+library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2019_bpnet/")
+options(knitr.figure_dir="16-fig3g_sfig4b-strict-motif-spacing", width=16, height=20)
+
+#Lab sources
+source("rscripts/granges_common.r")
+source("rscripts/metapeak_common.r")
+source("rscripts/knitr_common.r")
+source("rscripts/caching.r")
+source("rscripts/multiplot.R")
+
+#Specific packages
+library(ggrepel)
+```
+
+# Define data paths
+
+```{r define data}
+motif_pair_filepath<-"data/csv/motif_pairs.csv" #see "generation of motif pairs" below for description of how data was generated
+```
+
+## Generation of motif pairs
+
+`data/csv/dfi_subset.csv` was generated in the SnakeMake file, refer to this for further details. 
+
+Motif pairs were generated in the corresponding `16-fig3g_sfig4b-strict-motif-spacing.ipynb`. 
+
+# Import motif pairs and mark for palindromic instances
+
+Generate GRanges for each motif instance and the entire motif pair span.
+
+If the motif pairs are between each other, then there could be a palindromic strict spacing that is artificial. Because of this, we will apply a filter that removes overlapping motifs in cases where the motif pairs are the same motif.
+
+```{r format motif pairs}
+#Import motif pairs
+motif_pairs_with_tes<-read.csv(motif_pair_filepath)
+
+#Determine whether motifs being compared are the same PATTERNS
+motif_pairs_with_tes$is_same_motif<-(motif_pairs_with_tes$pattern_x == motif_pairs_with_tes$pattern_y) %>% as.character
+
+#Create GRanges
+motif_pairs_with_tes_x.gr<-motif_pairs_with_tes %>% 
+  makeGRangesFromDataFrame(keep.extra.columns = T, start.field = "pattern_start_abs_x", 
+                           end.field = "pattern_end_abs_x", strand.field = "strand_x", 
+                           seqnames.field="example_chrom_x", starts.in.df.are.0based = T)
+motif_pairs_with_tes_y.gr<-motif_pairs_with_tes %>% 
+  makeGRangesFromDataFrame(keep.extra.columns = T, start.field = "pattern_start_abs_y", 
+                           end.field = "pattern_end_abs_y", strand.field = "strand_y", 
+                           seqnames.field="example_chrom_x", starts.in.df.are.0based = T)
+
+
+#Determine whether motif  are overlapping
+overlaps_all<-findOverlaps(motif_pairs_with_tes_x.gr, motif_pairs_with_tes_y.gr, ignore.strand=TRUE) %>% as.data.frame
+overlapping_rows<-overlaps_all$queryHits[which(overlaps_all$queryHits==overlaps_all$subjectHits)]
+motif_pairs_with_tes$motifs_overlapping<-FALSE
+motif_pairs_with_tes$motifs_overlapping[overlapping_rows]<-TRUE
+
+#Create Granges with the coverage spanning both motif pairs
+starts<-data.frame(x=start(motif_pairs_with_tes_x.gr), y=start(motif_pairs_with_tes_y.gr))
+starts<-lapply(1:nrow(starts), function(x){min(as.numeric(starts[x,]))}) %>% unlist
+ends<-data.frame(x=end(motif_pairs_with_tes_x.gr), y=end(motif_pairs_with_tes_y.gr))
+ends<-lapply(1:nrow(ends), function(x){max(as.numeric(ends[x,]))}) %>% unlist
+motif_pair.gr<-GRanges(seqnames(motif_pairs_with_tes_x.gr), IRanges(start=starts, end=ends), strand="*")
+```
+
+# Annotate motif pairs with two interpretations of TE overlaps
+
+We have two interpretations of what is a TE:
+
+1. Annotations by RepeatMasker
+2. Criteria defined by type of seqlet returned
+
+These are both very similar but are not completely identical.
+
+# Import and format repeatmasker regions
+
+Note that `repeatmasker.mm10.gr.rds` file is a GRanges conversion from the `repeatmasker.mm10.fa.out`. The following code involves the formatting:
+
+```{bash, eval=F}
+#RepeatMasker open-4.0.5 
+cd /n/projects/mw2098/publications/2019_bpnet/data/
+wget http://www.repeatmasker.org/genomes/mm10/RepeatMasker-rm405-db20140131/mm10.fa.out.gz
+gunzip mm10.fa.out.gz
+```
+
+```{r, eval=F}
+repeats.df<-read.table("data/mm10.fa.out", header=FALSE, sep="", skip=3, as.is=TRUE, col.names=1:15, fill=TRUE)
+colnames(repeats.df)<-c("SW_score","perc_div","perc_del","perc_ins","chr","start","end","left","strand","matching_repeat","repeat_class","position_start","position_end","repeat","id")
+repeats.df$strand[repeats.df$strand=="C"]<-"-"
+repeats.gr<-makeGRangesFromDataFrame(repeats.df, keep.extra.columns = T, starts.in.df.are.0based = T)
+saveRDS(repeats.gr, "data/rdata/repeatmasker.mm10.gr.rds")
+```
+
+## Annotate repeatmasker TEs
+
+```{r annotate motif pairs repeat masker}
+rmask<-readRDS("data/rdata/repeatmasker.mm10.gr.rds")
+overlaps<-findOverlaps(rmask, motif_pair.gr, ignore.strand=T)
+overlaps_all_idx<-overlaps@to %>% unique
+
+motif_pairs_with_tes$is_te_by_rmask<-"no"
+motif_pairs_with_tes$is_te_by_rmask[overlaps_all_idx]<-"yes"
+motif_pairs_with_tes$is_te_by_rmask<-factor(motif_pairs_with_tes$is_te_by_rmask, levels=c("yes", "no"))
+```
+
+## Annotate ERV TEs
+
+We noticed that many of the long motifs that are across TEs are classified as TEs. How different are these results?
+
+```{r annotate motif pairs erv}
+#filter for ervs
+#rm_class1_idx<-grep(pattern = paste(c("LINE", "SINE", "erv", "LTR", "ERVL", "ERV"), sep="", collapse="|"), x = rmask$repeat_class, ignore.case = T) %>% unique
+erv_idx<-grep(pattern = paste(c("ERV"), sep="", collapse="|"), x = rmask$repeat_class, ignore.case = T) %>% unique
+message(round(length(erv_idx) / length(rmask), 2), " % of RepeatMasker elements will be used as erv filter.")
+ervs<-rmask[erv_idx]
+
+#Find overlaps of ervs and motif pairs
+overlaps_ervs<-findOverlaps(ervs, motif_pair.gr, ignore.strand=T)
+overlaps_all_erv_idx<-overlaps_ervs@to %>% unique
+
+#Label based on dfs
+motif_pairs_with_tes$is_te_by_erv<-"no"
+motif_pairs_with_tes$is_te_by_erv[overlaps_all_erv_idx]<-"yes"
+motif_pairs_with_tes$is_te_by_erv<-factor(motif_pairs_with_tes$is_te_by_erv, levels=c("yes", "no"))
+
+message(round((which(motif_pairs_with_tes$is_te_by_erv=="no" & motif_pairs_with_tes$is_te_by_rmask=="yes") %>% length) / nrow(motif_pairs_with_tes), 2), " of regions contain non-erv TEs.")
+
+#Label class of ERV that was binned
+erv_classes<-ervs[overlaps_ervs@from[!duplicated(overlaps_ervs@to)]]$repeat_class #select ervs that are not duplicated and overlap with motifs
+motif_pairs_with_tes$erv_class<-"Not ERV"
+motif_pairs_with_tes$erv_class[overlaps_all_erv_idx]<-erv_classes
+
+#Clean up ERVK classes
+motif_pairs_with_tes$erv_class[motif_pairs_with_tes$erv_class=="LTR/ERVK?"]<-"LTR/ERVK"
+motif_pairs_with_tes$erv_class[motif_pairs_with_tes$erv_class=="LTR/ERVL?"]<-"LTR/ERVL"
+motif_pairs_with_tes$erv_class[motif_pairs_with_tes$erv_class=="LTR/ERV1?"]<-"LTR/ERV1"
+```
+
+Check the overlap difference once you only filter for Class 1 TEs.
+
+```{r compare overlaps}
+which(motif_pairs_with_tes$is_te_by_retro=="no" & motif_pairs_with_tes$is_te_by_rmask=="yes") %>% length
+```
+
+It seems that there are no class 2 repeatmasker elements that overlap with any motif pair locations.
+
+## Annotate "criteria" TEs
+
+```{r annotate motif pairs criteria}
+motif_pairs_with_tes$is_te_by_criteria<-"no"
+motif_pairs_with_tes$is_te_by_criteria[which(motif_pairs_with_tes$is_te_x=="True" | motif_pairs_with_tes$is_te_y=="True")]<-"yes"
+motif_pairs_with_tes$is_te_by_criteria<-factor(motif_pairs_with_tes$is_te_by_criteria, levels=c("yes", "no"))
+```
+
+# Plot motif pair histogram with ERV-filter (class 1 retrotransposon subset)
+
+```{r sfig4b-strict-motif-spacing}
+plot_motif_pair_histogram<-function(df, max_dist = 100, min_dist = 6){
+  #Reassign the data
+  motif_pairs_with_tes_erv_plot<-subset(df, center_diff <= max_dist & center_diff >= min_dist)
+  motif_pairs_with_tes_erv_plot$erv_class<-factor(motif_pairs_with_tes_erv_plot$erv_class, 
+                                         levels=c("LTR/ERVK", "LTR/ERV1", "LTR/ERVL", "LTR/ERVL-MaLR", "Not ERV"), 
+                                         labels=c("ERVK", "ERV1", "ERVL", "ERVL - MaLR","Not ERV"))
+  motif_pairs_with_tes_erv_plot$motif_pair<-gsub("Essrb", "Esrrb", motif_pairs_with_tes_erv_plot$motif_pair) #rename to correct mistake in earlier annotations
+  motif_pairs_with_tes_erv_plot$motif_pair<-gsub("Nanog-partner", "Nanog-alt", motif_pairs_with_tes_erv_plot$motif_pair) #rename to correct mistake in earlier annotations
+
+  #Order and factor data
+  motif_pairs_with_tes_motif_pair_counts<- motif_pairs_with_tes_erv_plot %>%
+    group_by(motif_pair) %>% dplyr::summarize(max_count=max(table(center_diff)))
+  motif_pairs_with_tes_motif_pair_counts<-motif_pairs_with_tes_motif_pair_counts[order(motif_pairs_with_tes_motif_pair_counts$max_count, decreasing=T),]
+  motif_pairs_with_tes_erv_plot$motif_pair<-factor(motif_pairs_with_tes_erv_plot$motif_pair, levels=motif_pairs_with_tes_motif_pair_counts$motif_pair)
+  
+  #Label the facets on the body of the plot, not the facet labels (saves space)
+  label=data.frame(motif_pair = unique(as.character(motif_pairs_with_tes_erv_plot$motif_pair)))
+  label$motif_pair<-factor(label$motif_pair, levels=motif_pairs_with_tes_motif_pair_counts$motif_pair)
+
+  
+  #Format breaks to be pretty
+  library(scales)
+  #int_breaks <- function(x, n = 5) pretty(x, n)[pretty(x, n) %% 1 == 0] 
+  
+  g<-ggplot(motif_pairs_with_tes_erv_plot)+
+    geom_histogram(aes(x=center_diff, fill=erv_class), binwidth = 1)+#, color="black", size=.05)+
+    geom_text(data = label, aes(x=Inf, y=Inf, label = motif_pair), hjust=1, vjust=1, size=2)+
+    facet_wrap(~ motif_pair, scales="free", ncol = 6, dir="v")+
+    scale_x_continuous(breaks=seq(0, max_dist, 20), limits=c(0, max_dist), name="Motif pair distance")+
+    scale_y_continuous(name="Frequency", breaks=pretty_breaks())+
+    scale_fill_manual(values=c("steelblue3", "#d73027", "goldenrod2", "palegreen4", "gray70"), name="ERV Class")+
+    theme_classic()+
+    theme(text=element_text(size=8), strip.text = element_text(size=8), legend.position="right",
+          axis.text = element_text(size=8),
+          #strip.text.y = element_text(angle = 0, size=8), 
+          strip.text.x = element_blank(), strip.background = element_blank(), 
+          panel.grid.major.y = element_line(color="gray100"), 
+          panel.grid.major.x = element_line(color="gray100"))#, panel.border = element_rect(color="black"))
+  print(g)
+  return(NULL)
+}
+
+#plot while removing palindromes
+plot_motif_pair_histogram(df = motif_pairs_with_tes[-which(motif_pairs_with_tes$is_same_motif==TRUE & motif_pairs_with_tes$motifs_overlapping==TRUE),])
+```
+
+The ERV TEs are the best way of organizing this spacing. You can see that most strict spacings are associated with ERV classes.
+
+# Aggregate histograms 
+
+## Define motif pairs
+
+Motif pairs without palindromic atrifacts will be used:
+
+```{r define motif pairs}
+motif_pairs_with_tes_no_palindromes<-motif_pairs_with_tes[-which(motif_pairs_with_tes$is_same_motif==TRUE & motif_pairs_with_tes$motifs_overlapping==TRUE),]
+motif_pairs_with_tes_no_palindromes$motif_pair<-gsub("Essrb", "Esrrb", motif_pairs_with_tes_no_palindromes$motif_pair) #rename to correct mistake in earlier annotations
+motif_pairs_with_tes_no_palindromes$motif_pair<-gsub("Nanog-partner", "Nanog-alt", motif_pairs_with_tes_no_palindromes$motif_pair) #rename to correct mistake in earlier annotations
+```
+
+## Frequency of spacings vs ERV class
+
+```{r freq of spacings cs erv class}
+#Function to compute significance based on the motif pairs provided.
+motif_pair_erv_frequencies<-function(df, spacing_count_threshold=0, max_dist = 100, min_dist = 6){
+  #Filter motifs for processing
+  motif_pairs_with_tes_filtered<-subset(df, center_diff <= max_dist & center_diff >= min_dist)
+  motif_pairs_with_tes_filtered$motif_pair<-gsub("Essrb", "Esrrb", motif_pairs_with_tes_filtered$motif_pair) #rename to correct mistake in earlier annotations
+  motif_pairs_with_tes_filtered$motif_pair<-gsub("Nanog-partner", "Nanog-alt", motif_pairs_with_tes_filtered$motif_pair) #rename to correct mistake in earlier annotations
+  
+  
+  #Generate counts and total counts
+  pair_freq_erv<-motif_pairs_with_tes_filtered %>% group_by(is_te_by_erv, motif_pair, center_diff) %>% dplyr::summarize(count=n()) #count frequencies of center_diff
+  pair_freq_erv_motif_total<-motif_pairs_with_tes_filtered %>% group_by(motif_pair) %>% dplyr::summarize(total_motif_counts=n()) #count frequencies of center_diff
+  pair_freq_erv_motif_total<-pair_freq_erv_motif_total[order(pair_freq_erv_motif_total$total_motif_counts, decreasing=T),]
+  
+  #Filter out motif pairs that occur too infrequently to have a reliable spacing distribution.
+  motif_pairs_to_keep<-pair_freq_erv_motif_total$motif_pair[which(pair_freq_erv_motif_total$total_motif_counts>=spacing_count_threshold)]
+  pair_freq_erv<-pair_freq_erv[pair_freq_erv$motif_pair %in% motif_pairs_to_keep,]
+  
+  #Normalize to total motifs
+  pair_freq_erv<-merge(pair_freq_erv, pair_freq_erv_motif_total, by.x="motif_pair", by.y="motif_pair")
+  pair_freq_erv$count_norm_by_motif_totals<-pair_freq_erv$count/pair_freq_erv$total_motif_counts
+  
+  #Rank the counts
+  pair_freq_erv<-pair_freq_erv[order(pair_freq_erv$count_norm_by_motif_totals, decreasing = T),]
+  pair_freq_erv$row<-1:nrow(pair_freq_erv)
+  return(pair_freq_erv)
+}
+
+spacing_vs_class_freq<-motif_pair_erv_frequencies(df = motif_pairs_with_tes_no_palindromes)
+```
+
+## Rank based on counts frequency with thresholded values
+
+```{r fig3g-strict-motif-spacing}
+
+plot_motif_pair_rankings<-function(df, spacing_count_threshold=0, top_annotation_idx=10, max_dist = 100, min_dist = 6){
+
+  #Filter motifs for processing
+  motif_pairs_with_tes_filtered<-subset(df, center_diff <= max_dist & center_diff >= min_dist)
+  
+  #Generate counts and total counts
+  pair_freq_erv<-motif_pairs_with_tes_filtered %>% group_by(is_te_by_erv, motif_pair, center_diff) %>% dplyr::summarize(count=n()) #count frequencies of center_diff
+  pair_freq_erv_motif_total<-motif_pairs_with_tes_filtered %>% group_by(motif_pair) %>% dplyr::summarize(total_motif_counts=n()) #count frequencies of center_diff
+  pair_freq_erv_motif_total<-pair_freq_erv_motif_total[order(pair_freq_erv_motif_total$total_motif_counts, decreasing=T),]
+  
+  #Filter out motif pairs that occur too infrequently to have a reliable spacing distribution.
+  motif_pairs_to_keep<-pair_freq_erv_motif_total$motif_pair[which(pair_freq_erv_motif_total$total_motif_counts>=spacing_count_threshold)]
+  pair_freq_erv<-pair_freq_erv[pair_freq_erv$motif_pair %in% motif_pairs_to_keep,]
+  
+  #Normalize to total motifs
+  pair_freq_erv<-merge(pair_freq_erv, pair_freq_erv_motif_total, by.x="motif_pair", by.y="motif_pair")
+  pair_freq_erv$count_norm_by_motif_totals<-pair_freq_erv$count/pair_freq_erv$total_motif_counts
+  
+  #Rank the counts
+  pair_freq_erv<-pair_freq_erv[order(pair_freq_erv$count_norm_by_motif_totals, decreasing = T),]
+  pair_freq_erv$row<-1:nrow(pair_freq_erv)
+
+  #Top ERVK annotations
+  pair_freq_erv_top_ann<-pair_freq_erv[c(1:top_annotation_idx, which(pair_freq_erv$motif_pair=="Oct4-Sox2<>Nanog-alt")[1]),]
+  
+  #Top regions for plotting
+  pair_freq_erv_plot_topregions<-pair_freq_erv[which(pair_freq_erv$row<quantile(pair_freq_erv$row, .25) %>% round),]
+  
+  erv_jitter_plot<-ggplot()+
+    geom_point(data = pair_freq_erv_plot_topregions[1:13, ], aes(x=row, y=count_norm_by_motif_totals, color=is_te_by_erv), size=1) + #, height=.0005)+
+    geom_jitter(data = pair_freq_erv_plot_topregions[14:30, ], aes(x=row, y=count_norm_by_motif_totals, color=is_te_by_erv), width = 5, size=1) + #, height=.0005)+
+    geom_jitter(data = pair_freq_erv_plot_topregions[31:nrow(pair_freq_erv_plot_topregions),], 
+                aes(x=row, y=count_norm_by_motif_totals, color=is_te_by_erv), width = 15, size=1) + #, height=.0005)+
+    geom_label_repel(data=pair_freq_erv_top_ann, 
+               aes(x=row, y=count_norm_by_motif_totals, color=is_te_by_erv, 
+                   label=paste(gsub(pattern = "<>", replacement = " / ", motif_pair), " (", center_diff," bp)", sep="")),
+               hjust=0, vjust=.5, label.size = NA, xlim = c(75, NA), force=1, point.padding = .25, box.padding = .05, nudge_y = -.005)+
+    scale_x_continuous(breaks=seq(0, 1300, 400), name="Top pairwise spacings ranked by frequency bin")+
+    scale_y_continuous(name="Motif pair frequency (%)", limits = c(0, .205))+
+    scale_color_manual(values=c("#12984A", "black"), name="is ERV")+
+    ggtitle("Pairwise spacing ranked by frequency")+
+    theme_classic()+
+    theme(text=element_text(size=14))
+  print(erv_jitter_plot)
+  # ggsave(output_pdf, erv_jitter_plot, height=4, width=6) #, device=cairo_pdf)
+  return(pair_freq_erv)
+}
+
+pair_freq_erv<-plot_motif_pair_rankings(df = motif_pairs_with_tes_no_palindromes, spacing_count_threshold = 500)
+```
+
+# Check rate of ERVs
+
+```{r rate of ervs}
+check_erv_rate<-function(top_percent, frequency_table){
+  frequency_table<-frequency_table[order(frequency_table$count_norm_by_motif_totals, decreasing=T),]
+  top_freqs<-frequency_table[1:round(top_percent*nrow(frequency_table)),]
+  is_erv<-(top_freqs$is_te_by_erv == "yes") %>% sum
+  is_erv_percent<-round(is_erv/nrow(top_freqs),2)
+  print(paste("The top ", top_percent, " of spacings contain ", is_erv_percent, " as ERVs.", sep=""))
+}
+lapply(c(0.01), function(x) check_erv_rate(x, frequency_table = pair_freq_erv)) #with thresholds
+```
+
+# Conclusions 
+
++ Motif pairs across transposable elements do not follow typical spacing dynamics.
++ Strict spacing is largely due to motif pairs across transposable elements.
+  + When we see large counts across specific spacing, this is indicative of a TE.
+
+# Session Information
+
+For the purposes of reproducibility, the R Session details are below:
+
+```{r session}
+sessionInfo()
+```
+

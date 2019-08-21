@@ -1,0 +1,21 @@
+data:
+  peak_width: 20
+  shuffle: true
+  valid_chr:
+    - chr2
+    - chr3
+    - chr4
+  test_chr: []
+model:
+  name: seq_multitask
+  kwargs:
+    filters: 5
+    conv1_kernel_size: 6
+    tconv_kernel_size: 6
+    n_dil_layers: 6
+    lr: 0.004
+    c_task_weight: 100
+train:
+  early_stop_patience: 5
+  batch_size: 2
+  epochs: 2

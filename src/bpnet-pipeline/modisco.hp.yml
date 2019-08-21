@@ -1,0 +1,13 @@
+sliding_window_size: 21
+flank_size: 10
+target_seqlet_fdr: 0.01
+# min_seqlets_per_task: 1000
+min_metacluster_size: 2000
+min_metacluster_size_frac: 0.02
+trim_to_window_size: 30
+initial_flank_to_add: 10
+kmer_len: 8
+num_gaps: 3
+num_mismatches: 2
+final_min_cluster_size: 60
+max_seqlets_per_metacluster: 50000

@@ -1,0 +1,57 @@
+# ==================================================================
+# model.gin
+# --------------------------------------------
+# model
+import basepair
+import basepair.models
+import basepair.heads
+import basepair.layers
+import basepair.seqmodel
+import basepair.trainers
+import basepair.losses
+import basepair.external
+
+# macros
+conv1_kernel_size = 25
+tconv_kernel_size = 25
+n_dil_layers = 9
+filters = 64
+lr = 0.004
+batchnorm = False
+use_bias = False
+n_bias_tracks = 2
+n_profile_bias_tracks = 2
+seed = None
+
+# SeqModel
+train.trainer_cls = @SeqModelTrainer
+train.model = @multihead_seq_model()
+multihead_seq_model.tasks = %tasks
+multihead_seq_model.filters = %filters
+multihead_seq_model.seqlen = %seq_width
+
+multihead_seq_model.n_dil_layers = %n_dil_layers
+multihead_seq_model.conv1_kernel_size = %conv1_kernel_size
+multihead_seq_model.tconv_kernel_size = %tconv_kernel_size
+multihead_seq_model.batchnorm = %batchnorm
+multihead_seq_model.lr = %lr
+multihead_seq_model.padding = %padding
+multihead_seq_model.use_bias = %use_bias
+multihead_seq_model.n_profile_bias_tracks = %n_profile_bias_tracks
+
+# specified from the CLI
+multihead_seq_model.b_loss_weight = %b_loss_weight
+multihead_seq_model.c_loss_weight = %c_loss_weight
+multihead_seq_model.p_loss_weight = %p_loss_weight
+multihead_seq_model.merge_profile_reg = %merge_profile_reg
+
+# -------------------------------------------------------
+# train
+# training
+train.batch_size = 128
+train.num_workers = 6
+
+# train-specific
+train.epochs = 200
+train.early_stop_patience = 5
+train.seed = %seed

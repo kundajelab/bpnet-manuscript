@@ -1,0 +1,9 @@
+bigwigs:
+  task1:
+    pos_counts: pos.bw
+    neg_counts: neg.bw
+  task2:
+    pos_counts: pos.bw
+    neg_counts: neg.bw
+fasta_file: ref.fa
+peaks: peaks.bed

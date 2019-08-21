@@ -1,0 +1,43 @@
+# ==================================================================
+# problem.gin
+# --------------------------------------------
+# data
+import basepair
+import basepair.datasets
+import basepair.metrics
+
+# intervals_file = '/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/peaks/1kb.osnk.tsv.gz'
+# specified from gin-bindings
+valid_chr = ['chr2', 'chr3', 'chr4']
+test_chr = ['chr1', 'chr8', 'chr9']
+
+profile_bias_pool_size = None
+
+only_classes = False
+
+target_seqlen = 1000
+# tasks = ['Oct4', 'Sox2', 'Nanog']  -> specified from gin-bindings
+
+train.data = @get_gw_StrandedProfile_datasets()  # use the default train and valid chromosomes
+get_gw_StrandedProfile_datasets.valid_chr = %valid_chr
+get_gw_StrandedProfile_datasets.test_chr = %test_chr
+get_gw_StrandedProfile_datasets.intervals_file = %intervals_file
+get_gw_StrandedProfile_datasets.peak_width = %target_seqlen
+get_gw_StrandedProfile_datasets.include_metadata = False
+get_gw_StrandedProfile_datasets.include_classes = True
+get_gw_StrandedProfile_datasets.tasks = %tasks
+get_gw_StrandedProfile_datasets.exclude_chr = ['chrX', 'chrY']
+get_gw_StrandedProfile_datasets.taskname_first = True  # so that the output labels will be "{task}/profile"
+get_gw_StrandedProfile_datasets.profile_bias_pool_size = %profile_bias_pool_size
+
+# Specified from the CLI
+get_gw_StrandedProfile_datasets.dataspec = %dataspec  # specified from gin-bindings
+get_gw_StrandedProfile_datasets.seq_width = %seq_width # specified from gin-bindings
+get_gw_StrandedProfile_datasets.only_classes = %only_classes
+# ------------------------------------------------------------------------
+# train.train_samples_per_epoch = 50000
+# train.validation_samples = 10000
+train.train_epoch_frac = 0.05
+train.valid_epoch_frac = 0.1
+
+train.eval_skip = ['train-valid-genome-wide']

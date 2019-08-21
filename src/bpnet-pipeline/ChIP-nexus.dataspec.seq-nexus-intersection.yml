@@ -1,0 +1,24 @@
+task_specs:
+  Oct4:
+    pos_counts: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/Oct4/counts.pos.bw
+    neg_counts: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/Oct4/counts.neg.bw
+    peaks: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/intersected_set/Oct4.interpretation.bed.gz
+  Sox2:
+    pos_counts: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/Sox2/counts.pos.bw
+    neg_counts: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/Sox2/counts.neg.bw
+    peaks: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/intersected_set/Sox2.interpretation.bed.gz
+  Nanog:
+    pos_counts: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/Nanog/counts.pos.bw
+    neg_counts: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/Nanog/counts.neg.bw
+    peaks: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/intersected_set/Nanog.interpretation.bed.gz
+
+bias_specs:
+  input:
+    pos_counts: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/patchcap/counts.pos.bw
+    neg_counts: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/patchcap/counts.neg.bw
+    tasks:
+      - Oct4
+      - Sox2
+      - Nanog
+
+fasta_file: /oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/mm10_no_alt_analysis_set_ENCODE.fasta

@@ -1,0 +1,579 @@
+"""
+
+Run with:
+snakemake --profile slurm  --jobs 6 -k 
+
+Main target rules:
+------------------
+- run_train: train all the models
+- run_modisco: run all desired modisco runs
+- run_modisco_score2: get the instances.parq file for all desired modisco runs
+- run_modisco_score2_finished: get the instances.parq file for all finished modisco runs
+- run_modisco_report_all_finished: Upload (finished) modisco results to the www server (only run within Kundajelab)
+- current_modisco_results: Generate and upload results.html to the www server (can be also run on Sherlock)
+- filtered_train: Run model training for a subset of experiments filtered based on `note` column using --config note_filter='...'
+- filtered_modisco: Same as `filtered_train` for modisco
+- current_train_results: Gather the current training results to 'output/model.results.finished.csv'
+"""
+from basepair.models import seq_bpnet_cropped_extra_seqlen
+import pandas as pd
+from pathlib import Path
+from snakemake.remote.SFTP import RemoteProvider
+SFTP = RemoteProvider(private_key="~/.ssh/id_rsa_kundajelab")  # Required for uploading the reports to the WWW server in the kundajelab cluster
+
+MODISCO_HPARAM_FILE = "modisco.hp.yml"
+# output, benchmarks
+
+ddir = Path('')
+www_dir = '/srv/www/kundaje/avsec/chipnexus/paper/modisco-comparison/'
+# -------------------------------------
+# Load `experiments` from gdocs
+experiments = pd.read_csv('https://docs.google.com/spreadsheets/d/1obNkUbUJZqAJZnGuK8Tw4LyY15srUQ54Ssbg2XV5Za0/export?gid=0&format=csv')
+nts = experiments[experiments.train == True]  # consider only those that have 'train' ticked
+
+# add `peak_width seq_width gin_files dataspec gin_bindings exp`
+experiments['peak_width'] = 1000
+experiments['seq_width'] = [
+    seq_bpnet_cropped_extra_seqlen(conv1_kernel_size=25,  # Hard-coded
+                                   n_dil_layers=int(experiments.iloc[i]['n_dil_layers']),
+                                   tconv_kernel_size=int(experiments.iloc[i]['tconv_kernel_size']),
+                                   target_seqlen=int(experiments.iloc[i]['peak_width']))
+    if experiments.iloc[i]['padding'] == "valid" else experiments.iloc[i]['peak_width']
+    for i in range(len(experiments))
+]
+experiments.peak_width = experiments.peak_width.astype(int)
+experiments.seq_width = experiments.seq_width.astype(int)
+experiments['gin_bindings'] = experiments['gin_bindings'] + ";seq_width=" + experiments['seq_width'].astype(str)
+
+# Add task names
+task_name_dict = {
+    "OSN": ['Oct4', 'Sox2', 'Nanog'],
+    "O": ['Oct4'],
+    "S": ['Sox2'],
+    "N": ['Nanog'],
+    "K": ['Klf4'],
+    "OSNK": ['Oct4', 'Sox2', 'Nanog', 'Klf4'],
+    "OSNKSa": ['Oct4', 'Sox2', 'Nanog', 'Klf4', 'Sall4'],
+}
+
+add_task_var = ";tasks=" + experiments['tfs'].map(task_name_dict).astype(str)
+experiments['gin_bindings'] = experiments['gin_bindings'] + add_task_var
+
+# optionally override the `intervals_file`
+experiments['gin_bindings'] = [(row.gin_bindings +
+                                ";intervals_file='" +
+                                f"{ddir}/chip-{row.assay}/{row.tfs}.50-percent-overlap.tsv.gz'")
+                               if row.region == 'gw' else row.gin_bindings
+                               for i, row in experiments.iterrows()]
+
+# Use `only_classes` when regression and profile weights are 0
+experiments['gin_bindings'] = [(row.gin_bindings + ";only_classes=" +
+                                str((row.regression_weight == 0) and (row.profile_weight == 0)))
+                               if row.region == 'gw' else row.gin_bindings
+                               for i, row in experiments.iterrows()]
+
+# Optionally add n_bias_tracks
+experiments['bias_pool'] = experiments['bias_pool'].astype(str)
+experiments['gin_bindings'] = [row.gin_bindings + ";n_profile_bias_tracks={}".format(int(2 * (1 + row.bias_pool.count(','))))
+                               for i, row in experiments.iterrows()]
+
+# Optionally add valid_chr and test_chr
+def format_chr(sl):
+    return str(["chr" + str(x) for x in sl.split(",")])
+
+
+experiments['gin_bindings'] = [(row.gin_bindings + ";valid_chr=" + format_chr(row.valid_chr))
+                               if row.valid_chr is not None and isinstance(row.valid_chr, str) else row.gin_bindings
+                               for i, row in experiments.iterrows()]
+experiments['gin_bindings'] = [(row.gin_bindings + ";test_chr=" + format_chr(row.test_chr))
+                               if row.test_chr is not None and isinstance(row.test_chr, str) else row.gin_bindings
+                               for i, row in experiments.iterrows()]
+
+
+is_duplicated = experiments.exp.duplicated()
+if is_duplicated.any():
+    print("Duplicated columns: ")
+    print(list(experiments.exp[is_duplicated]))
+    raise ValueError("Duplicated experiment id's")
+    # don't allow any duplicated experiment ID's
+experiments = experiments.set_index("exp")  # use exp as the index
+
+if "note_filter" in config:
+    nf = config['note_filter']
+    print(f"Using note_filter: {nf}")
+    filt_experiments = experiments[experiments.note == nf]
+else:
+    filt_experiments = experiments
+
+# -----------------------------------------------------------------------
+# Target rules
+
+def get_task_imp_score(exp):
+    row = experiments.loc[exp]
+    if row.modisco_tasks is None or row.modisco_tasks == '':
+        tasks = ['all']
+        print("Using all for modisco_tasks")
+    else:
+        tasks = []
+        for t in row.modisco_tasks.split(","):
+            if t == 'per-tf':
+                # expand per-tf
+                tasks += task_name_dict[row.tfs]
+            else:
+                tasks.append(t)
+    return [(task, row.imp_score) for task in tasks]
+
+
+rule all:
+    input:
+        # Trained models
+        expand("output/{exp}/seq_model.pkl",
+               exp=experiments.index),
+        expand("output/{exp}/deeplift.imp_score.h5",
+               exp=experiments[experiments.run_modisco | experiments.imp_score_run].index),
+        expand("output/{exp}/null.deeplift.imp_score.h5",
+               exp=experiments[experiments.run_modisco | experiments.imp_score_run].index),
+        # Modisco report
+        SFTP.remote(
+            [f"mitra/srv/www/kundaje/avsec/chipnexus/paper/modisco-comparison/v2-output/{exp}/deeplift/{task}/out/{imp_score}/report.html"
+             for exp in list(experiments[experiments.run_modisco].index)
+             for task, imp_score in get_task_imp_score(exp)]),
+        # summary stats
+        "output/modisco.results.csv",
+        "output/model.results.all.csv",
+
+rule run_train:
+    input:
+        expand("output/{exp}/seq_model.pkl",
+               exp=experiments.index),
+
+rule run_modisco:
+    input:
+        [f"output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5"
+         for exp in list(experiments[experiments.run_modisco].index)
+         for task, imp_score in get_task_imp_score(exp)],
+
+rule run_modisco_score2:
+    input:
+        [f"output/{exp}/deeplift/{task}/out/{imp_score}/instances.parq/_metadata"
+         for exp in list(experiments[experiments.run_modisco].index)
+         for task, imp_score in get_task_imp_score(exp)],
+
+rule run_modisco_score2_finished:
+    input:
+        [f"output/{exp}/deeplift/{task}/out/{imp_score}/instances.parq/_metadata"
+         for exp in list(experiments[experiments.run_modisco].index)
+         for task, imp_score in get_task_imp_score(exp)
+         if os.path.exists(f"output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5") and task != 'all'],
+
+
+rule run_modisco_report_all_finished:
+    """NOTE: This rule should be ran within the Kudajelab cluster where /srv/www exists
+      (e.g. not on Sherlock)
+    """
+    input:
+        [os.path.join(www_dir, f"v2-output/{exp}/deeplift/{task}/out/{imp_score}/seqlets/scored_regions.bed")
+         for exp in list(experiments[experiments.run_modisco].index)
+         for task, imp_score in get_task_imp_score(exp)
+         if os.path.exists(f"output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5")],
+
+
+rule filtered_train:
+    input:
+        # Trained models
+        expand("output/{exp}/seq_model.pkl",
+               exp=filt_experiments.index),
+
+
+rule filtered_modisco:
+    input:
+        expand("output/{exp}/deeplift.imp_score.h5",
+               exp=filt_experiments[filt_experiments.run_modisco].index),
+        # Modisco report
+        SFTP.remote(
+            [f"mitra/srv/www/kundaje/avsec/chipnexus/paper/modisco-comparison/v2-output/{exp}/deeplift/{task}/out/{imp_score}/report.html"
+             for exp in list(filt_experiments[filt_experiments.run_modisco].index)
+             for task, imp_score in get_task_imp_score(exp)
+             # if task == 'Nanog'
+             ]),
+
+
+rule current_train_results:
+    input:
+        "output/model.results.finished.csv",
+
+rule current_modisco_results:
+    input:
+        SFTP.remote(
+            [f"mitra/srv/www/kundaje/avsec/chipnexus/paper/modisco-comparison/v2-output/{exp}/deeplift/{task}/out/{imp_score}/report.html"
+             for exp in list(experiments[experiments.run_modisco].index)
+             for task, imp_score in get_task_imp_score(exp)
+             if os.path.exists(f"output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5")
+             ]),
+
+
+# -----------------------------------------------------------------------
+
+def is_gw(wildcards):
+    return experiments.loc[wildcards.exp].region == 'gw'
+
+
+rule train:
+    """Train the model using gin-train: https://github.com/Avsecz/gin-train/
+    """
+    output:
+        model = "output/{exp}/seq_model.pkl",
+        metrics = "output/{exp}/evaluation.valid.json"
+    benchmark:
+        "output/{exp}/train.smk-benchmark.tsv"
+        # this will note the execution time as well as the
+        # memory usage
+    params:
+        hp = lambda wildcards: experiments.loc[wildcards.exp],
+        gpu = 0  # always use GPU=0 since that's how SLURM assigns you GPU's
+    resources:
+        mem_mb = lambda wildcards, attempt: 2**(attempt - 1) * 64000,  # 64 GB
+        runtime = lambda wildcards, attempt: 2**(attempt - 1) * 60 * 4 * (1 + 11 * is_gw(wildcards)),  # peaks=4, gw=48 hours
+        gpu = 1
+    threads: 5  # GPU machines typically have 20 cores and 4 GPU
+    shell:
+        """
+        if [[ $(hostname -s) = sh-* ]]; then
+            module load py-tensorflow/1.6.0_py36
+        fi
+
+        gt {params.hp.gin_files} output \
+          --gin-bindings "{params.hp.gin_bindings}" \
+          --gpu {params.gpu} \
+          --memfrac 1 \
+          --wandb-project avsec/basepair \
+          --run-id '{wildcards.exp}' \
+          --note-params 'exp="{wildcards.exp}"' \
+          --force-overwrite
+        """
+
+
+rule imp_score_deeplift:
+    """Compute the importance scores
+    """
+    input:
+        model = "output/{exp}/seq_model.pkl"
+    output:
+        imp = "output/{exp}/deeplift.imp_score.h5"
+    benchmark:
+        "output/{exp}/imp_score_deeplift.smk-benchmark.tsv"
+    params:
+        hp = lambda wildcards: experiments.loc[wildcards.exp],
+        gpu = 0,
+        batch_size = 16,
+        exclude_chr = 'chrX,chrY'
+    resources:
+        mem_mb = lambda wildcards, attempt: 2**(attempt - 1) * 32000,  # 32GB
+        runtime = lambda wildcards, attempt: 2**(attempt - 1) * 60 * 2,  # 2 hours
+        gpu = 1
+    threads: 5  # GPU machines typically have 20 cores and 4 GPU
+    shell:
+        """
+        if [[ $(hostname -s) = sh-* ]]; then
+            module load py-tensorflow/1.6.0_py36
+        fi
+
+        basepair imp-score-seqmodel output/{wildcards.exp}/ {output.imp} \
+          --dataspec {params.hp.dataspec} \
+          --gpu {params.gpu} \
+          --batch-size {params.batch_size} \
+          --method deeplift \
+          --intp-pattern '*' \
+          --peak-width {params.hp.peak_width} \
+          --seq-width {params.hp.seq_width} \
+          --memfrac 1 \
+          --num-workers {threads} \
+          --exclude-chr {params.exclude_chr}
+        """
+
+
+rule null_imp_score_deeplift:
+    """Compute the importance scores
+    """
+    input:
+        model = "output/{exp}/seq_model.pkl"
+    output:
+        imp = "output/{exp}/null.deeplift.imp_score.h5"
+    params:
+        hp = lambda wildcards: experiments.loc[wildcards.exp],
+        gpu = 0,
+        batch_size = 16,
+        exclude_chr = 'chrX,chrY',
+        max_batches = 300  # -> ~ 5000 = background
+    resources:
+        mem_mb = lambda wildcards, attempt: 2**(attempt - 1) * 32000,  # 32GB
+        runtime = lambda wildcards, attempt: 2**(attempt - 1) * 60 * 2,  # 2 hours
+        gpu = 1
+    threads: 5  # GPU machines typically have 20 cores and 4 GPU
+    shell:
+        """
+        if [[ $(hostname -s) = sh-* ]]; then
+            module load py-tensorflow/1.6.0_py36
+        fi
+
+        basepair imp-score-seqmodel output/{wildcards.exp}/ {output.imp} \
+          --dataspec {params.hp.dataspec} \
+          --gpu {params.gpu} \
+          --batch-size {params.batch_size} \
+          --method deeplift \
+          --intp-pattern '*' \
+          --peak-width {params.hp.peak_width} \
+          --seq-width {params.hp.seq_width} \
+          --max-batches {params.max_batches} \
+          --shuffle-seq \
+          --memfrac 1 \
+          --num-workers {threads} \
+          --exclude-chr {params.exclude_chr}
+        """
+
+
+rule run_tf_modisco:
+    """Run tf-modisco
+
+    Note: chrX,chrY were already excluded in `imp_score_deeplift`
+    """
+    input:
+        imp = "output/{exp}/deeplift.imp_score.h5",
+        null_imp = "output/{exp}/null.deeplift.imp_score.h5",
+        hp_file = MODISCO_HPARAM_FILE
+    output:
+        modisco = "output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5"
+    benchmark:
+        "output/{exp}/deeplift/{task}/out/{imp_score}/modisco.smk-benchmark.tsv"
+    params:
+        hp = lambda wildcards: experiments.loc[wildcards.exp]
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 250000 * (2 if wildcards.task == 'all' else 1),  # 250GB for per-tf, 500GB for all
+        runtime = lambda wildcards, attempt: attempt * 60 * 12 * (8 if wildcards.task == 'all' else 1),  # 12 hours for per-tf and 96 for joint run
+    threads: 20
+    # Resources:
+    # Memory ~ 500GB for the joint run
+    # Threads ~ as many as possible
+    # Don't need the GPU for modisco.
+    shell:
+        """
+        basepair modisco-run {input.imp} output/{wildcards.exp}/deeplift/{wildcards.task}/out/{wildcards.imp_score}/ \
+          --null-imp-scores {input.null_imp} \
+          --hparams {input.hp_file} \
+          --grad-type {wildcards.imp_score} \
+          --subset-tasks {wildcards.task} \
+          --filter-subset-tasks \
+          --seqmodel \
+          --skip-dist-filter \
+          --num-workers {threads}
+
+        # --filter-npy .. -> if you run it per-task
+        # --override-hparams '?'
+        """
+
+
+rule modisco_score2:
+    """Run tf-modisco
+
+    Note: chrX,chrY were already excluded in `imp_score_deeplift`
+    """
+    input:
+        modisco = "output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5"
+    output:
+        instances = "output/{exp}/deeplift/{task}/out/{imp_score}/instances.parq/_metadata"
+    benchmark:
+        "output/{exp}/deeplift/{task}/out/{imp_score}/modisco-instances.smk-benchmark.tsv"
+    params:
+        hp = lambda wildcards: experiments.loc[wildcards.exp],
+        trim_frac = 0.08
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 200000 * (2 if wildcards.task == 'all' else 1),  # 200GB for per-tf, 200GB for all
+        runtime = lambda wildcards, attempt: attempt * 60 * 8 * (4 if wildcards.task == 'all' else 1),  # 8 hours for per-tf and 96 for joint run
+    threads: 20
+    shell:
+        """
+        basepair modisco-score2 \
+          `dirname {input.modisco}` \
+          `dirname {output.instances}` \
+          --ignore-filter \
+          --trim-frac {params.trim_frac} \
+          --n-jobs {threads}
+        """
+
+
+rule modisco_report:
+    """Get modisco results
+    """
+    input:
+        modisco = "output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5",
+    output:
+        report = "output/{exp}/deeplift/{task}/out/{imp_score}/report.ipynb",
+        report_html = "output/{exp}/deeplift/{task}/out/{imp_score}/report.html"
+    params:
+        report = "modisco-template.ipynb"
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 4000,  # 4GB
+        runtime = lambda wildcards, attempt: attempt * 15,  # 15 minutes
+    threads: 1
+    run:
+        from basepair.utils import render_ipynb
+        render_ipynb(params.report,
+                     output.report,
+                     params=dict(modisco_file=input.modisco))
+
+
+rule modisco_report_all:
+    input:
+        modisco = "output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5",
+    output:
+        report_html = "output/{exp}/deeplift/{task}/out/{imp_score}/results.html",
+        seqlet_bed = "output/{exp}/deeplift/{task}/out/{imp_score}/seqlets/scored_regions.bed",
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 100000 * (2 if wildcards.task == 'all' else 1),  # 100GB for per-tf, 200GB for all
+        runtime = lambda wildcards, attempt: attempt * 60 * 4 * (8 if wildcards.task == 'all' else 1),  # 4 hours for per-tf and 96 for joint run
+    threads: 10
+    shell:
+        """
+        cd `dirname {input.modisco}`
+        basepair modisco-report-all . --n-jobs {threads}
+        """
+
+rule upload_modisco_results:
+    """NOTE: "seqlets/scores_regions.bed" is required since that's the last step
+    in the `basepair modisco-report-all` pipeline
+    """
+    input:
+        seqlet_bed = "output/{exp}/deeplift/{task}/out/{imp_score}/seqlets/scored_regions.bed",
+    output:
+        seqlet_bed = os.path.join(www_dir, "v2-output/{exp}/deeplift/{task}/out/{imp_score}/seqlets/scored_regions.bed"),
+    shell:
+        """
+        cd `dirname {input.seqlet_bed}`/../
+        rsync -av --progress \
+          plots results.html footprints.pkl pattern_table.* patterns.pkl cluster-patterns.* motif_clustering seqlets \
+          `dirname {output.seqlet_bed}`/../
+        """
+
+rule upload_file:
+    input:
+        report = "output/{exp}/deeplift/{task}/out/{imp_score}/report.html",
+    output:
+        report = SFTP.remote("mitra/srv/www/kundaje/avsec/chipnexus/"
+                             "paper/modisco-comparison/v2-output/{exp}/"
+                             "deeplift/{task}/out/{imp_score}/report.html")
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 1000,  # 1GB
+        runtime = lambda wildcards, attempt: attempt * 5,  # 5 minutes
+    threads: 1
+    shell:
+        """
+        ssh mitra mkdir -p /srv/www/kundaje/avsec/chipnexus/paper/modisco-comparison/v2-`dirname {input.report}`
+        cp {input.report} {output.report}
+        """
+
+
+def get_exp_stats_model(f, experiments):
+    import os
+    import pandas as pd
+    from basepair.utils import read_json, dict_prefix_key, flatten
+    from basepair.modisco.results import ModiscoResult
+
+    model_dir = os.path.dirname(f)
+    exp = model_dir.split("/")[1]
+
+    # Append experiment info
+    out = {"exp": exp,
+           **dict(experiments.loc[exp])}
+
+    # Append model performance info
+    metrics = read_json(f)
+    dfh = pd.read_csv(f"{model_dir}/history.csv")
+    m_val = flatten(dict_prefix_key(dict(dfh.iloc[dfh.val_loss.idxmin()]), "best-epoch/"))
+    out = {**out, **flatten(metrics, separator="/"), **m_val}
+
+    train_stats = dict(pd.read_csv(f"{model_dir}/train.smk-benchmark.tsv", sep='\t').iloc[0])
+    out = {**out, **dict_prefix_key(train_stats, "stats/train/")}
+    return out
+
+
+def get_exp_stats_modisco(f, experiments):
+    import os
+    import pandas as pd
+    from basepair.utils import read_json, dict_prefix_key, flatten
+    from basepair.modisco.results import ModiscoResult
+
+    exp = f.split("/")[1]
+    model_dir = f"output/{exp}/"
+    modisco_dir = os.path.dirname(f)
+
+    # Append experiment info
+    out = {"exp": exp,
+           **dict(experiments.loc[exp])}
+
+    # Append model performance info
+    metrics = read_json(os.path.join(model_dir, 'evaluation.valid.json'))
+    dfh = pd.read_csv(f"{model_dir}/history.csv")
+    m_val = flatten(dict_prefix_key(dict(dfh.iloc[dfh.val_loss.idxmin()]), "best-epoch/"))
+    out = {**out, **flatten(metrics, separator="/"), **m_val}
+
+    # Append tf-modisco info
+    mr = ModiscoResult(f)
+    mr.open()
+
+    # Modisco_stats
+    out = {**out, **dict_prefix_key(mr.stats(), "modisco/")}
+    mr.close()
+
+    # Load the run-times
+    train_stats = dict(pd.read_csv(f"{model_dir}/train.smk-benchmark.tsv", sep='\t').iloc[0])
+    out = {**out, **dict_prefix_key(train_stats, "stats/train/")}
+
+    imp_stats = dict(pd.read_csv(f"{model_dir}/imp_score_deeplift.smk-benchmark.tsv", sep='\t').iloc[0])
+    out = {**out, **dict_prefix_key(imp_stats, "stats/imp/")}
+
+    modisco_stats = dict(pd.read_csv(f"{modisco_dir}/modisco.smk-benchmark.tsv", sep='\t').iloc[0])
+    out = {**out, **dict_prefix_key(modisco_stats, "stats/modisco/")}
+
+    return flatten(out, separator='/')
+
+
+def get_eval_jsons(wildcards):
+    out = [f"output/{exp}/evaluation.valid.json"
+           for exp in list(experiments.index)]
+    if wildcards.subset == 'all':
+        return out
+    elif wildcards.subset == 'finished':
+        return [m for m in out if os.path.exists(m)]
+    else:
+        raise ValueError("wildcards.subset not 'all' or 'finished'")
+
+
+rule gather_train:
+    input:
+        m = get_eval_jsons,
+    output:
+        df = "output/model.results.{subset}.csv"
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 16000,  # 16GB
+        runtime = lambda wildcards, attempt: attempt * 60 * 1,  # 1 hour
+    threads: 1
+    run:
+        pd.DataFrame([get_exp_stats_model(f, experiments)
+                      for f in input.m]).to_csv(output.df, index=False)
+
+
+rule gather_modisco:
+    input:
+        modisco_files = [f"output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5"
+                         for exp in list(experiments[experiments.run_modisco].index)
+                         for task, imp_score in get_task_imp_score(exp)],
+    output:
+        df = "output/modisco.results.csv"
+    resources:
+        mem_mb = lambda wildcards, attempt: attempt * 16000,  # 16GB
+        runtime = lambda wildcards, attempt: attempt * 60 * 1,  # 1 hour
+    threads: 1
+    run:
+        (pd.DataFrame([get_exp_stats_modisco(f, experiments)
+                       for f in input.modisco_files])
+         .to_csv(output.df, index=False))

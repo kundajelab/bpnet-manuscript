@@ -1,0 +1,41 @@
+# ==================================================================
+# model.gin
+# --------------------------------------------
+# model
+import basepair
+import basepair.models
+import basepair.heads
+import basepair.layers
+import basepair.seqmodel
+import basepair.trainers
+import basepair.losses
+import basepair.external
+
+# macros
+lr = 0.004
+batchnorm = False
+seq_width = 1000
+dropout = 0.5
+
+# SeqModel
+train.trainer_cls = @SeqModelTrainer
+train.model = @basset_seq_model()
+basset_seq_model.tasks = %tasks
+basset_seq_model.body = "Basset" # Opt. change to "FactorizedBasset"
+basset_seq_model.dropout = (%dropout, %dropout) # ? tune
+basset_seq_model.hidden = (128, 128)
+basset_seq_model.final_dropout = %dropout  # Tune
+basset_seq_model.batchnorm = %batchnorm
+
+basset_seq_model.lr = %lr  # Tune
+basset_seq_model.seqlen = %seq_width # specified from gin-bindings
+
+# -------------------------------------------------------
+# train
+# training
+train.batch_size = 128
+train.num_workers = 6
+
+# train-specific
+train.epochs = 200
+train.early_stop_patience = 5
