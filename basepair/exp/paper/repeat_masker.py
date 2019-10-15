@@ -9,7 +9,7 @@ def download_repeat_masker(repeat_masker_file=None):
         from basepair.config import get_data_dir
         ddir = get_data_dir()
         repeat_masker_file = Path(f"{ddir}/raw/annotation/mm10/RepeatMasker/mm10.fa.out.gz")
-    repeat_masker_file.parent.mkdir(exist_ok=True)
+    repeat_masker_file.parent.mkdir(exist_ok=True, parents=True)
     return RemoteFile('http://www.repeatmasker.org/genomes/mm10/RepeatMasker-rm405-db20140131/mm10.fa.out.gz',
                       md5='c046c8a8d1a1ce20eb865574d31d528b').get_file(repeat_masker_file)
 
