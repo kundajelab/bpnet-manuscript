@@ -26,6 +26,19 @@ def read_meme_motifs(meme_file):
             for i, m in enumerate(record)}
 
 
+def read_fimo_dfi(file_path):
+    from basepair.preproc import interval_center
+    from basepair.config import all_chr
+    df = pd.read_csv(file_path, sep='\t', comment='#')
+    df['chrom'] = df['sequence_name']
+    df['end'] = df['stop']
+    df['pattern_center_abs'] = interval_center(df).astype(int)
+    df['pattern_name'] = df['motif_alt_id'].str.replace("MEME-", "")
+    df = df[df.chrom.isin(all_chr)]
+    return df
+
+
+
 def read_transfac(file_path, ignore_motif_name=True):
     from concise.utils.pwm import PWM
     from collections import defaultdict
@@ -50,3 +63,10 @@ def read_transfac(file_path, ignore_motif_name=True):
 
     return {str(motif): PWM(np.array(v)[:, 1:-1].astype(float) + 0.01)
             for motif, v in motif_lines.items()}
+
+def read_homer(file_path):
+    df = pd.read_csv(file_path, skiprows=1, header=None, sep='\t').values
+    l.split(",P:")[1].strip() 
+    with open("motif1.motif.txt") as f:
+        l = f.readline()
+    return PWM(df + 0.01, name="P={}".format(l.split(",P:")[1].strip()))

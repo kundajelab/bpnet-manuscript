@@ -495,7 +495,7 @@ class Pattern:
             o[t] = mean([m(pp1[i], pp2[i]) for i in range(pp1.shape[1])])
         return o
 
-    def similarity(self, pattern, track='seq', metric='continousjaccard', max_score=True):
+    def similarity(self, pattern, track='seq', metric='continousjaccard', max_score=True, both_strands=False):
         """Compute the similarity to another pattern
 
         Args:
@@ -508,6 +508,10 @@ class Pattern:
         Returns:
           (float) similarity score. The higher, the more similar the two patterns are
         """
+        if both_strands:
+            return max(self.similarity(pattern, track=track, metric=metric, max_score=max_score),
+                       self.rc().similarity(pattern, track=track, metric=metric, max_score=max_score))
+
         if track.startswith("profile"):
             motif_len = self.len_profile()
             if isinstance(pattern, list):
