@@ -141,7 +141,7 @@ def get_ylim(viz_dict, tasks, profile_per_tf=False, neg_rev=True):
     return ylim
 
 
-def get_instances_single(pattern, seq, imp_scores, imp_score, centroid_seqlet_matches, tasks):
+def get_instances_single(pattern, seq, imp_scores, imp_score, centroid_seqlet_matches, tasks, n_jobs=1):
     task = pattern.name.split("/")[0]
     pname_short = "/".join(pattern.name.split("/")[1:])
 
@@ -149,8 +149,8 @@ def get_instances_single(pattern, seq, imp_scores, imp_score, centroid_seqlet_ma
     contrib = {k: v * seq for k, v in hyp_contrib.items()}
 
     match, importance = pattern.scan_importance(contrib, hyp_contrib, [task],
-                                                n_jobs=1, verbose=False)
-    seq_match = pattern.scan_seq(seq, n_jobs=1, verbose=False)
+                                                n_jobs=n_jobs, verbose=False)
+    seq_match = pattern.scan_seq(seq, n_jobs=n_jobs, verbose=False)
     norm_df = centroid_seqlet_matches[task].query(f"pattern == '{pname_short}'")
     dfm = pattern.get_instances([task], match, importance, seq_match,
                                 norm_df=norm_df,

@@ -119,7 +119,8 @@ def dfi_add_ranges(dfi, ranges, dedup=False):
 
         # number of removed duplicates
         d = len(dfi) - len(dfi_dedup)
-        print("number of de-duplicated instances:", d, f"({d / len(dfi) * 100}%)")
+        if len(dfi) > 0:
+            print("number of de-duplicated instances:", d, f"({d / len(dfi) * 100}%)")
 
         # use de-duplicated instances from now on
         dfi = dfi_dedup
