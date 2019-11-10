@@ -71,13 +71,13 @@ All the data will be downloaded to this directory. In the code-base, replace `/o
 #### Download raw data
 
 ```bash
-wget https://zenodo.org/record/3371164/files/output.tar.gz?download=1 -O output.tar.gz && tar xvfz output.tar.gz && rm data.tar.gz
+wget 'https://zenodo.org/record/3371164/files/output.tar.gz?download=1' -O output.tar.gz && tar xvfz output.tar.gz && rm output.tar.gz
 ```
 
 #### Download outputs
 
 ```bash
-wget https://zenodo.org/record/3371216/files/data.tar.gz?download=1 -O data.tar.gz && tar xvfz output.tar.gz && rm data.tar.gz
+wget 'https://zenodo.org/record/3371216/files/data.tar.gz?download=1' -O data.tar.gz && tar xvfz data.tar.gz && rm data.tar.gz
 ```
 
 ### 3. Run all scripts for which the main data were not provided
