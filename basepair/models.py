@@ -214,5 +214,18 @@ def sklearn_estimator(estimator_name: str, kwargs: dict = None):
     return OrderedDict(all_estimators())[estimator_name](**kwargs)
 
 
+def seq_bpnet_cropped_extra_seqlen(conv1_kernel_size=21,
+                                   n_dil_layers=6,
+                                   tconv_kernel_size=25,
+                                   target_seqlen=0,
+                                   **kwargs):
+    """Compute the extra sequence length required
+    """
+    from basepair.layers import len_change_dense_dilated_valid_conv, len_change_cropped_deconv_1d
+    return target_seqlen + (- len_change_dense_dilated_valid_conv(conv1_kernel_size=conv1_kernel_size,
+                                                                  n_dil_layers=n_dil_layers)
+                            - len_change_cropped_deconv_1d(tconv_kernel_size=tconv_kernel_size))
+
+  
 def get(name):
     return get_from_module(name, globals())
