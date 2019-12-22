@@ -1,5 +1,8 @@
 """
-Compare to chexmix
+Compare to:
+- chexmix
+- MEME
+- HOMER
 
 # Run with `snakemake`
 
@@ -23,13 +26,54 @@ BLACKLIST_FILE_BED = ddir / 'mm10.blacklist.bed'
 BAM_DIR = ddir / 'chip-nexus/pool_filt_bam'
 
 
+def get_param(run, key):
+    """Get the parameter from the run id: k1=v1,k2=v2
+    """
+    for x in run.split(","):
+        k,v = x.split("=")
+        if k == key:
+            return v
+    # print(f"key {key} doesn't exist in {run}")
+    return None
+
+
 rule all:
     input:
         # Bam files
         expand(os.path.join(ddir, 'chip-nexus/{tf}/pool_filt.bam'), tf=tfs),
+        # MEME
+        expand('output/{peak_caller}/{tf}/MEME/{run}/FIMO/fimo.tsv', 
+               tf=tfs,
+               peak_caller=['macs2'],
+               # peak_caller=['peakxus', 'macs2', 'peakxus-in-macs2'],
+               run=['w=200,n=1000,nmotifs=15,mod=zoops,evt=0.01,maxw=20',  # zoops ron
+                    # increase the number of top peaks
+                    'w=200,n=2000,nmotifs=15,mod=zoops,evt=0.01,maxw=20',
+                    # increase the number of top peaks even further
+                    'w=200,n=5000,nmotifs=15,mod=zoops,evt=0.01,maxw=20',
+                    # shorter sequences
+                    'w=50,n=5000,nmotifs=15,mod=zoops,evt=0.01,maxw=20',
+                    # drop the evt and maxw restrictions
+                    'w=200,n=2000,nmotifs=15,mod=zoops',
+                    # try shorter sequences
+                    'w=100,n=2000,nmotifs=15,mod=zoops',
+                    # try mod=anr
+                    'w=200,n=2000,nmotifs=15,mod=anr',
+                    # MEMESuite setting
+                    'w=50,n=500,nmotifs=3,mod=anr,minw=6,maxw=50',
+               ]
+              ),
         # Chexmix
         expand('output/chexmix/{tf}/ChExMix_{tf}_results.html', tf=tfs),
-
+        # HOMER
+        # - motifs
+        expand('output/{peak_caller}/{tf}/HOMER/len=12,size=200/homerMotifs.all.motifs',
+               tf=tfs,
+               peak_caller=['macs2']),
+        # # - motif instances
+        expand('output/{peak_caller}/{tf}/HOMER/len=12,size=200/motif_instances2.tsv',
+               tf=tfs,
+               peak_caller=['macs2'])
 
 rule get_chexmix:
     """
@@ -88,3 +132,160 @@ rule chexmix:
           --seq {FASTA_FILES} \
           --out output/chexmix/{wildcards.tf}/
         """
+
+
+rule extract_sequences_macs2:
+    input:
+        peaks = '/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/chip-nexus/{tf}/idr-optimal-set.narrowPeak.gz',
+        fasta = FASTA_FILE
+    output:
+        top_peak_seqs = 'output/macs2/{tf}/MEME/{run}/top_seqs.fa'
+    params:
+        excl_chroms = ['chrX', 'chrY'],
+        n_peaks = lambda w: int(get_param(w.run, "n")),
+        seq_width = lambda w: int(get_param(w.run, "w")),
+    resources:
+        mem_mb = 16000,  # 16 GB
+        runtime = 60 * 2,  # 2 hours
+    threads: 1
+    run:
+        import pandas as pd
+        from concise.utils.fasta import write_fasta
+        from kipoiseq.extractors import FastaStringExtractor
+        from basepair.preproc import resize_interval
+        from pybedtools import BedTool
+        
+        df = pd.read_csv(input.peaks, sep='\t', header=None)
+        
+        # narrowPeak: https://genome.ucsc.edu/FAQ/FAQformat.html#format12
+        df.columns = ['chrom', 'start', 'end',
+                      'name', 'score', 'strand',
+                      'signalValue', 'pValue', 'qValue', 'peak'
+                     ]
+        
+        # use peak summit
+        df['start'] = df['start'] + df.peak.astype(int)
+        df['end'] = df['start']  # Same as the new start.
+        
+        # exclude some chromosomes
+        df = df[~df.chrom.isin(params.excl_chroms)]
+
+        # High score = better peak
+        df_filt = df.sort_values('signalValue', ascending=False).iloc[:params.n_peaks]
+        ex = FastaStringExtractor(input.fasta, use_strand=False, force_upper=True)
+
+        seqs = [ex.extract(resize_interval(x, params.seq_width))
+                for x in BedTool.from_dataframe(df_filt[['chrom', 'start', 'end']])]
+        write_fasta(output.top_peak_seqs, seqs)
+
+
+def prefixed_get_param(run, key, prefix):
+    v = get_param(run, key)
+    if v is None:
+        return ""
+    else:
+        return prefix + v
+
+
+# --------------------------------------------------------------------
+# Motif discovery
+rule discover_motifs_meme:
+    """Run MEME
+    """
+    input:
+        top_peak_seqs = 'output/{peak_caller}/{tf}/MEME/{run}/top_seqs.fa'
+    output:
+        meme_txt = 'output/{peak_caller}/{tf}/MEME/{run}/meme.txt'
+    resources:
+        mem_mb = 32000,  # 32 GB
+        runtime = 60 * 24,  # 24 hours
+	ntasks = 8,  # use that instead of threads
+        nodes = 1,
+        # n_tasks_per_node = 8,
+        cpus_per_task = 1,
+    # threads: 16
+    params:
+        mod = lambda w: prefixed_get_param(w.run, "mod", "-mod "),
+        nmotifs = lambda w: prefixed_get_param(w.run, "nmotifs", "-nmotifs "),
+        evt = lambda w: prefixed_get_param(w.run, "evt", "-evt "),
+        maxw = lambda w: prefixed_get_param(w.run, "maxw", "-maxw "),
+        minw = lambda w: prefixed_get_param(w.run, "minw", "-minw ")
+    shell:
+        """
+        # module add openmpi
+        meme {input.top_peak_seqs} \
+          -oc output/{wildcards.peak_caller}/{wildcards.tf}/MEME/{wildcards.run} \
+          -dna -revcomp \
+          -p {resources.ntasks} \
+          {params.mod} {params.nmotifs} {params.evt} {params.maxw} {params.minw}
+        """
+
+rule scan_motifs_fimo:
+    """Run FIMO
+    """
+    input:
+        meme_txt = 'output/{peak_caller}/{tf}/MEME/{run}/meme.txt',
+        fasta = FASTA_FILE
+    output:
+        fimo = 'output/{peak_caller}/{tf}/MEME/{run}/FIMO/fimo.tsv'
+    resources:
+        mem_mb = 32000,  # 16 GB
+        runtime = 60 * 24  # 24 hours
+    threads: 1
+    shell:
+        """
+        fimo \
+          --oc output/{wildcards.peak_caller}/{wildcards.tf}/MEME/{wildcards.run}/FIMO/ \
+          {input.meme_txt} {input.fasta}
+        """
+
+        
+rule unzip:
+    input:
+        file = "{path}.bed.gz",
+    output:
+        file = "{path}.bed"
+    resources:
+        mem_mb = 8000,  # 8 GB
+        runtime = 60 * 1,  # 1 hours
+    threads: 1
+    shell:
+        "zcat {input.file} > {output.file}"
+
+        
+def get_peaks(wildcards):
+    if wildcards.peak_caller == 'macs2':
+        return os.path.join(ddir, f'chip-nexus/{wildcards.tf}/idr-optimal-set.summit.bed')
+    else:
+        raise ValueError(f"Unkown peak_caller: {wildcards.peak_caller}")
+        
+rule discover_motifs_homer:
+    input:
+        peaks = get_peaks,
+        fasta = FASTA_FILE
+    output:
+        motifs = 'output/{peak_caller}/{tf}/HOMER/{run}/homerMotifs.all.motifs'
+    resources:
+        mem_mb = 32000,  # 32 GB
+        runtime = 60 * 12,  # 12 hours
+    threads: 5
+    shell:
+        """
+        findMotifsGenome.pl {input.peaks} mm10 `dirname {output.motifs}` -len 12 -size 200 -p {threads}
+        """
+
+rule homer_get_motif_instances:
+    input:
+        peaks = os.path.join(ddir, f'chip-nexus/osnk-idr-optimal-set.summit.bed'),
+        fasta = FASTA_FILE,
+        motifs = 'output/{peak_caller}/{tf}/HOMER/{run}/homerMotifs.all.motifs'
+    output:
+        motif_instances = 'output/{peak_caller}/{tf}/HOMER/{run}/motif_instances2.tsv'
+    resources:
+        mem_mb = 32000,  # 32 GB
+        runtime = 60 * 12,  # 12 hours
+    threads: 1
+    shell:
+        """
+        findMotifsGenome.pl {input.peaks} mm10 `dirname {input.motifs}` -find {input.motifs} -size 1000 > {output.motif_instances}
+        """                

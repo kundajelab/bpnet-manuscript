@@ -85,6 +85,10 @@ def paper_config(autolayout=False):
     # validate that the requested font is indeed installed
     installed_fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
     if paper_style['font.sans-serif'] not in installed_fonts:
-        print(f"WARNING: Font {paper_style['font.sans-serif']} not installed and is required by")
+        print(f"WARNING: Font {paper_style['font.sans-serif']} not installed and is required by matplotlib")
+        print("Fix 1: Make sure the you have ttf-mscorefonts installed:")
+        print("sudo apt-get install ttf-mscorefonts-installer && sudo fc-cache")
+        print("Fix 2: Try running the following command to re-load the cache followed by ipynb kernel restart:")
+        print("fc-cache -vf && rm -rf ~/.cache/matplotlib")
 
     plt.style.use(paper_style)
