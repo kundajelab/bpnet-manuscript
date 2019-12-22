@@ -60,7 +60,7 @@ rule all:
                     # try mod=anr
                     'w=200,n=2000,nmotifs=15,mod=anr',
                     # MEMESuite setting
-                    'w=50,n=500,nmotifs=3,mod=anr,minw=6,maxw=50',
+                    'w=50,n=500,nmotifs=3,mod=anr,minw=6,maxw=50,objfun=classic,markov_order=0',
                ]
               ),
         # Chexmix
@@ -75,6 +75,7 @@ rule all:
                tf=tfs,
                peak_caller=['macs2'])
 
+        
 rule get_chexmix:
     """
     """
@@ -209,7 +210,9 @@ rule discover_motifs_meme:
         nmotifs = lambda w: prefixed_get_param(w.run, "nmotifs", "-nmotifs "),
         evt = lambda w: prefixed_get_param(w.run, "evt", "-evt "),
         maxw = lambda w: prefixed_get_param(w.run, "maxw", "-maxw "),
-        minw = lambda w: prefixed_get_param(w.run, "minw", "-minw ")
+        minw = lambda w: prefixed_get_param(w.run, "minw", "-minw "),
+        objfun = lambda w: prefixed_get_param(w.run, "objfun", "-objfun "),
+        markov_order = lambda w: prefixed_get_param(w.run, "markov_order", "-markov_order ")
     shell:
         """
         # module add openmpi
@@ -217,8 +220,10 @@ rule discover_motifs_meme:
           -oc output/{wildcards.peak_caller}/{wildcards.tf}/MEME/{wildcards.run} \
           -dna -revcomp \
           -p {resources.ntasks} \
-          {params.mod} {params.nmotifs} {params.evt} {params.maxw} {params.minw}
+          {params.mod} {params.nmotifs} {params.evt} {params.maxw} {params.minw} \
+          {params.objfun} {params.markov_order}
         """
+
 
 rule scan_motifs_fimo:
     """Run FIMO

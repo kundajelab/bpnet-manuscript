@@ -65,7 +65,8 @@ profile_mapping = {
     "Sox2": "Sox2",
     "Nanog": "Nanog",
     "Klf4": "Klf4",
-    "Essrb": "Oct4"
+    "Essrb": "Oct4",
+    "Zic3": "Nanog",
 }
 
 peak_pred_metric = PeakPredictionProfileMetric(pos_min_threshold=0.015,
