@@ -241,7 +241,10 @@ rule scan_motifs_fimo:
         """
         fimo \
           --oc output/{wildcards.peak_caller}/{wildcards.tf}/MEME/{wildcards.run}/FIMO/ \
+          --thresh 0.001 \
+          --max-stored-scores 100000000 \
           {input.meme_txt} {input.fasta}
+        # Note: less stringent threshold of 1e-3 was used (default = 1e-4)
         """
 
         
