@@ -54,16 +54,16 @@ class ModiscoDataSingleBinary:
                             ]
 
             # profile data: observed
-            #self.profile[pattern] = {task: extract_signal(self.get_region_profile(task), seqlets)
+            # self.profile[pattern] = {task: extract_signal(self.get_region_profile(task), seqlets)
             #                         for task in tasks}
 
-            #self.profile_wide[pattern] = {task: extract_signal(self.get_region_profile(task), wide_seqlets)
+            # self.profile_wide[pattern] = {task: extract_signal(self.get_region_profile(task), wide_seqlets)
             #                              for task in tasks}
             # importance scores
             self.grad_profile[pattern] = {task: extract_signal(self.get_region_grad(task, 'profile'),
                                                                seqlets)
                                           for task in tasks}
-            #self.grad_counts[pattern] = {task: extract_signal(self.get_region_grad(task, 'counts'), seqlets)
+            # self.grad_counts[pattern] = {task: extract_signal(self.get_region_grad(task, 'counts'), seqlets)
             #                             for task in tasks}
             # seq
             self.seq[pattern] = extract_signal(self.get_region_seq(), seqlets)
@@ -73,13 +73,13 @@ class ModiscoDataSingleBinary:
         """Instantiate ModiscoData from tf-modisco run folder
         """
         kwargs = read_json(os.path.join(modisco_dir, "kwargs.json"))
-        d = HDF5Reader.load(kwargs['imp_scores']) #deeplift hdffile
+        d = HDF5Reader.load(kwargs['imp_scores'])  # deeplift hdffile
         included_samples = np.load(kwargs["filter_npy"])
         # load modisco
         mr = ModiscoResult(os.path.join(modisco_dir, "results.hdf5"))
         mr.open()
         tasks = list(d['grads'].keys())
-        
+
         return cls(mr, d, included_samples, tasks)
 
     # Explicitly defined getters to abstract the underlying storage
@@ -90,12 +90,12 @@ class ModiscoDataSingleBinary:
     def get_seqlets(self, pattern):
         return self.seqlets_per_task[pattern]
 
-    #def get_profile(self, pattern, task):
+    # def get_profile(self, pattern, task):
     #    """Get profile counts associated with the pattern
     #    """
     #    return self.profile[pattern][task]
 
-    #def get_profile_wide(self, pattern, task):
+    # def get_profile_wide(self, pattern, task):
     #    """Get profile counts associated with the pattern
     #    """
     #    return self.profile_wide[pattern][task]
@@ -103,7 +103,7 @@ class ModiscoDataSingleBinary:
     def get_region_profile(self, task):
         """Return all profiles of `task` found in peaks of `peak_task`
         """
-        #return self.d['targets']['profile'][task][self.included_samples]
+        # return self.d['targets']['profile'][task][self.included_samples]
         return self.d['grads'][task]['deeplift']['contrib_scores'][self.included_samples]
 
     def get_region_seq(self):
@@ -128,7 +128,7 @@ class ModiscoDataSingleBinary:
     def get_imp(self, pattern, task, which='profile'):
         """Get importance scores associated with the pattern
         """
-        return self.grad_profile[pattern][task] #* self.get_seq(pattern)
+        return self.grad_profile[pattern][task]  # * self.get_seq(pattern)
 #         if which == 'profile':
 #             return self.grad_profile[pattern][task] * self.get_seq(pattern)
 #         elif which == 'counts':
@@ -180,7 +180,6 @@ class ModiscoDataSingleBinary:
         return dfm
 
 
-
 class ModiscoData:
     """Container for all the required data from a modisco run
     """
@@ -190,8 +189,8 @@ class ModiscoData:
     def __init__(self, mr, d, included_samples, tasks):
         self.mr = mr
         self.d = d
-        #if 'hyp_imp' not in self.d:
-            # backcompatibility
+        # if 'hyp_imp' not in self.d:
+        # backcompatibility
         #    self.d['hyp_imp'] = self.d['grads']
         if included_samples is not None:
             warnings.warn("included_samples deprecated. use included_samples=None")
@@ -347,7 +346,7 @@ class ModiscoData:
 
         seq = self.get_seq(pattern_name)[:, i:j]
         # profile = {task: self.get_profile_wide(pattern_name, task) for task in tasks}
-        contrib = {task: self.get_imp(pattern_name, task, 'profile')[:, i:j] 
+        contrib = {task: self.get_imp(pattern_name, task, 'profile')[:, i:j]
                    for task in tasks}
 
         match, importance = pattern.scan_importance(contrib, hyp_contrib=None, tasks=tasks,
@@ -360,25 +359,25 @@ class ModiscoData:
 
 
 DOC = OrderedDict([
-        ("logo pwm", "sequence information content"),
-        ("logo imp", "average importance score logo"),
-        ("n seqlets", "total number of seqlets"),
-        ("ic pwm mean", "average information content per base"),
-        ("<task> imp profile / counts", "Average per-base profile/total count prediction importance scores for <task>. Seqlets are trimmed to the core motif displayed in logo pwm (typically 10bp)"),
-        ("<task> footprint entropydiff", "average entropy difference compared to the uniform distribution (computed at non-trimmed seqlets regions, typically 40bp). More positive numbers represent stronger deviation from the uniform distribution"),
-        ("<task> footprint max",
-         "(max(pos) + max(neg))/2 where `pos` are the "
-         "maximum counts of the average profilefor the positive strand. Higher number means better agreement between the strands."),
-        ("<task> footprint standcor", "Maximum auto-correlation between positive and reversed negative strand"),
-        ("<task> footprint counts", "average number of counts in the seqlet region"),
-        ("<task> region counts", "average number of counts in the whole region where seqlets are located (typically 1kb)"),
-        ("<task> pos absmean", "Absolute value of the mean seqlet position with 0 being the region center"),
-        ("<task> pos std", "Standard deviation of the position"),
-        ("<task> pos unimodal", "If True, the distribution of positions is estimated to be uni-modal"),
-        ("<task> periodicity 10bp", "Strength of the 10bp periodicity in the profile importance scores. "
-         "Measured as the fraction of the fourier power spectrum at 10bp."),
-        ("consensus", "consensus sequence (tallest letters from logo pwm)"),
-    ])    
+    ("logo pwm", "sequence information content"),
+    ("logo imp", "average importance score logo"),
+    ("n seqlets", "total number of seqlets"),
+    ("ic pwm mean", "average information content per base"),
+    ("<task> imp profile / counts", "Average per-base profile/total count prediction importance scores for <task>. Seqlets are trimmed to the core motif displayed in logo pwm (typically 10bp)"),
+    ("<task> footprint entropydiff", "average entropy difference compared to the uniform distribution (computed at non-trimmed seqlets regions, typically 40bp). More positive numbers represent stronger deviation from the uniform distribution"),
+    ("<task> footprint max",
+     "(max(pos) + max(neg))/2 where `pos` are the "
+     "maximum counts of the average profilefor the positive strand. Higher number means better agreement between the strands."),
+    ("<task> footprint standcor", "Maximum auto-correlation between positive and reversed negative strand"),
+    ("<task> footprint counts", "average number of counts in the seqlet region"),
+    ("<task> region counts", "average number of counts in the whole region where seqlets are located (typically 1kb)"),
+    ("<task> pos absmean", "Absolute value of the mean seqlet position with 0 being the region center"),
+    ("<task> pos std", "Standard deviation of the position"),
+    ("<task> pos unimodal", "If True, the distribution of positions is estimated to be uni-modal"),
+    ("<task> periodicity 10bp", "Strength of the 10bp periodicity in the profile importance scores. "
+     "Measured as the fraction of the fourier power spectrum at 10bp."),
+    ("consensus", "consensus sequence (tallest letters from logo pwm)"),
+])
 
 
 def modisco_table(data):
@@ -541,7 +540,7 @@ def dist_n_modes(values):
     except:
         import pdb
         pdb.set_trace()
-    
+
     xs = np.linspace(values.min(), values.max(), 100)
     smooth_hist = density(xs)
     maxima = argrelextrema(smooth_hist, np.greater)
@@ -579,14 +578,14 @@ def task_periodicity(pattern, task, data):
     ])
 
 # ----------------------
-def write_modisco_table(df, output_dir, report_url=None, prefix='pattern_table', 
-                        exclude_when_writing = ["logo pwm", "logo imp"], doc=DOC, write_csv=True):
+def write_modisco_table(df, output_dir, report_url=None, prefix='pattern_table',
+                        exclude_when_writing=["logo pwm", "logo imp"], doc=DOC, write_csv=True):
     """Write the pattern table to as .html and .csv
     """
     from vdom.helpers import h2, h3, p, ul, ol, li, div, b
     output_dir = Path(output_dir)
     df = df.copy()
-    
+
     if write_csv:
         cols_for_csv = [c for c in df.columns if c not in exclude_when_writing]
         df[cols_for_csv].to_csv(output_dir / f'{prefix}.csv', index=False)
