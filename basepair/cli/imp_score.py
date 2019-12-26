@@ -497,7 +497,8 @@ class ImpScoreFile:
         self.data = self.f.load_all(unflatten=False)
         return self
 
-    def _extract(self, seqlet, seq, hyp_contrib, profiles, profile_width=None):
+    @classmethod
+    def _extract(cls, seqlet, seq, hyp_contrib, profiles, profile_width=None):
         """Extract all the values using the seqlet
         """
         from basepair.modisco.core import Pattern

@@ -3,7 +3,6 @@ Test model training
 """
 from basepair.cli.schemas import (TaskSpec, DataSpec, HParams,
                                   TrainHParams, DataHParams, ModelHParams)
-from basepair.cli.train import train
 from basepair.cli.evaluate import evaluate
 from kipoi.utils import cd as cdir
 from pytest import fixture

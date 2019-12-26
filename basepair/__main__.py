@@ -7,7 +7,6 @@ import sys
 from tqdm import tqdm
 import json
 
-from basepair.cli.train import train, preproc
 from basepair.cli.evaluate import evaluate
 from basepair.cli.imp_score import imp_score, avail_imp_scores, imp_score_seqmodel
 from basepair.cli.modisco import (modisco_run, modisco_plot, modisco2bed,
