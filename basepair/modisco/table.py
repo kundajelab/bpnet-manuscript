@@ -235,6 +235,7 @@ class ModiscoData:
     def load(cls, modisco_dir, imp_scores_h5, impsf=None):
         """Instantiate ModiscoData from tf-modisco run folder
         """
+        del imp_scores_h5  # Unused
         from basepair.cli.imp_score import ImpScoreFile
         modisco_dir = Path(modisco_dir)
 

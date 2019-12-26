@@ -828,7 +828,7 @@ def modisco2bed(modisco_dir, output_dir, trim_frac=0.08):
     r.close()
 
 
-def modisco_table(modisco_dir, imp_scores, output_dir, report_url=None, impsf=None):
+def modisco_table(modisco_dir, output_dir, report_url=None, impsf=None):
     """Write the pattern table to as .html and .csv
     """
     plt.switch_backend('agg')
@@ -836,7 +836,7 @@ def modisco_table(modisco_dir, imp_scores, output_dir, report_url=None, impsf=No
     from basepair.modisco.motif_clustering import hirearchically_reorder_table
     add_file_logging(output_dir, logger, 'modisco-table')
     print("Loading required data")
-    data = ModiscoData.load(modisco_dir, imp_scores, impsf=impsf)
+    data = ModiscoData.load(modisco_dir, imp_scores_h5=None, impsf=impsf)
 
     print("Generating the table")
     df = modisco_table(data)
@@ -1163,7 +1163,7 @@ def modisco_report_all(modisco_dir, trim_frac=0.08, n_jobs=20, scan_instances=Fa
     sync.append("results.html")
 
     if not cr.set_cmd('modisco_table').done():
-        modisco_table(modisco_dir, imp_scores, modisco_dir, report_url=None, impsf=impsf)
+        modisco_table(modisco_dir, modisco_dir, report_url=None, impsf=impsf)
         cr.write()
     sync.append("footprints.pkl")
     sync.append("pattern_table.*")
