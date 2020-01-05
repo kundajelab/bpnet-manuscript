@@ -178,3 +178,11 @@ def plot_colormap(cmap_dict, label='', ax=None, figwidth=.5):
 def plt9_tilt_xlab(angle=45):
     from plotnine import theme, element_text
     return theme(axis_text_x=element_text(rotation=angle, hjust=1))
+
+def plt9_horizontal_facet_label():
+    from plotnine import theme, element_text
+    return theme(strip_text_y=element_text(rotation=0, hjust=1))
+
+def plt9_remove_facet_label_box():
+    from plotnine import theme, element_blank
+    return theme(strip_background = element_blank())

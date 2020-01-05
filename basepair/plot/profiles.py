@@ -55,7 +55,7 @@ def plot_stranded_profile(profile, ax=None, ymax=None, profile_std=None, flip_ne
     # return ax
 
 
-def multiple_plot_stranded_profile(d_profile, figsize_tmpl=(4, 3), normalize=False):
+def multiple_plot_stranded_profile(d_profile, figsize_tmpl=(4, 3), normalize=False, **kwargs):
     fig, axes = plt.subplots(1, len(d_profile),
                              figsize=(figsize_tmpl[0] * len(d_profile), figsize_tmpl[1]),
                              sharey=True)
@@ -63,7 +63,7 @@ def multiple_plot_stranded_profile(d_profile, figsize_tmpl=(4, 3), normalize=Fal
         arr = d_profile[task].mean(axis=0)
         if normalize:
             arr = arr / arr.max()
-        plot_stranded_profile(arr, ax=ax, set_ylim=False)
+        plot_stranded_profile(arr, ax=ax, set_ylim=False, **kwargs)
         ax.set_title(task)
         if i == 0:
             ax.set_ylabel("Avg. counts")

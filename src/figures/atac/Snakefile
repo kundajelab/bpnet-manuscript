@@ -1,0 +1,148 @@
+"""Process the output files
+"""
+
+from pathlib import Path
+import pandas as pd
+from basepair.utils import read_pkl
+
+GENOME_FILE = '/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/mm10.chrom.sizes'
+
+ATAC_PROC_DIR = Path('/oak/stanford/groups/akundaje/projects/bpnet/ATACseq_processed')
+CROO_DIR = ATAC_PROC_DIR / 'croo'
+OUTPUT_DIR = Path('/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/atac')
+
+df_id = pd.read_csv(ATAC_PROC_DIR / 'id_to_sample.txt', sep='\t',
+                    usecols=['id', 'status', 'name', 'str_label'])
+
+sample_to_id = {row.str_label: row.id for i,row in df_id.iterrows()}
+
+METHODS = ['BPNet', 'MEME/FIMO']
+closest_motifs = read_pkl("/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/chexmix-peakxus/closest_motifs.pkl")
+motifs = list(closest_motifs)
+
+rule all:
+    input:
+        # V-plots
+        expand(f'{OUTPUT_DIR}/{{sample}}/v-plot/{{method}}/{{motif}}/counts.rep-{{rep}}.top-{{N}}.stranded={{stranded}}.central-{{central_len}}bp.txt',
+               sample=list(sample_to_id),
+               method=METHODS,
+               motif=motifs,
+               central_len=[1000, 200],
+               rep=[1, 2],
+               N=[2500],
+               stranded=[True]),
+        # 5' coverage tracks at bp resolution
+        expand(f'{OUTPUT_DIR}/{{sample}}/coverage.sub{{fraglen_lim}}bp-fragments.{{strand}}.bw',
+               sample=list(sample_to_id),
+               fraglen_lim=[150],
+               strand=['pos', 'neg']),
+
+
+dfi_list_dir = '/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/chexmix-peakxus'
+
+rule motif_instances:
+    input:
+        instances_parq = f'{dfi_list_dir}/dfi_list.incl-conservation,is_erv.pkl',
+    output:
+        motif_bed = [f'{dfi_list_dir}/dfi_list.incl-conservation,is_erv-bed/{method}/{motif}/instances.top-{{N}}.central-{{central_len}}bp.bed'
+                     for method in METHODS
+                     for motif in closest_motifs]
+    run:
+        from basepair.utils import read_pkl
+        import numpy as np
+        dfi_list = read_pkl(input.instances_parq)
+        total = len(METHODS) * len(closest_motifs)
+        i = 0
+        for method in METHODS:
+            score_column = dfi_list[method]['score']
+            for motif in closest_motifs:
+                i += 1
+                print(method, motif, i, '/', total)
+                pattern_name = (motif if method == 'BPNet'
+                                else closest_motifs[motif][dfi_list[method]['motif_method']][0].name)
+                _dfi = dfi_list[method]['dfi']
+                _dfi = _dfi[_dfi.pattern_name == pattern_name]  # Pattern_name
+                _dfi = _dfi[(~_dfi[score_column].isnull())]  # Not-null score
+                max_diff = int(wildcards.central_len) // 2
+                _dfi = _dfi[np.abs(_dfi.pattern_center - 500) <= max_diff]
+                _dfi = _dfi.sort_values(score_column, ascending=False).iloc[:int(wildcards.N)]  # Top N
+                cols = ['example_chrom', 'pattern_center_abs', 'pattern_center_abs',
+                        'pattern_name', score_column, 'strand']
+                _dfi[cols].to_csv(
+                    f'{dfi_list_dir}/dfi_list.incl-conservation,is_erv-bed/{method}/{motif}/instances.top-{wildcards.N}.central-{wildcards.central_len}bp.bed',
+                    header=False, index=False, sep='\t')
+
+rule index_bam:
+    input:
+        bam = '{path}.bam'
+    output:
+        bai = '{path}.bam.bai'
+    shell:
+        '''
+        samtools index {input.bam} {output.bai}
+        '''
+
+rule softlink_bam:
+    input:
+        bam = lambda w: f'{CROO_DIR}/{sample_to_id[w.sample]}/align/rep{w.rep}/{w.sample}_{w.rep}_1.merged.nodup.no_chrM_MT.bam',
+    output:
+        bam = f'{OUTPUT_DIR}/{{sample}}/rep-{{rep}}.bam'
+    shell:
+        '''
+        ln -s {input.bam} {output.bam}
+        '''
+
+rule v_plot:
+    input:
+        bam = f'{OUTPUT_DIR}/{{sample}}/rep-{{rep}}.bam',
+        bai = f'{OUTPUT_DIR}/{{sample}}/rep-{{rep}}.bam.bai',
+        motif_bed = f'{dfi_list_dir}/dfi_list.incl-conservation,is_erv-bed/{{method}}/{{motif}}/instances.top-{{N}}.central-{{central_len}}bp.bed'
+    output:
+        vplot_txt = f'{OUTPUT_DIR}/{{sample}}/v-plot/{{method}}/{{motif}}/counts.rep-{{rep}}.top-{{N}}.stranded={{stranded}}.central-{{central_len}}bp.txt'
+    params:
+        stranded = lambda w: '-stranded 5' if w.stranded == 'True' else ''
+    shell:
+        '''
+        /users/avsec/bin/anaconda3/envs/py27-chipnexus/bin/python \
+          /oak/stanford/groups/akundaje/avsec/basepair/code/V-plot.py \
+          {input.bam} {input.motif_bed} 0 1 500 500 {output.vplot_txt} {params.stranded}
+        '''
+     
+
+TA_SUFFIX = '1_1.merged.nodup.no_chrM_MT.tn5.pooled.tagAlign.gz'
+
+rule generate_atac_bedGraph:
+    """Generate the bigwig files
+    """
+    input:
+        genome_file = GENOME_FILE,
+        ta = lambda w: f'{CROO_DIR}/{sample_to_id[w.sample]}/align/pooled-rep/{w.sample}_{TA_SUFFIX}',
+    output:
+        bedGraph = f'{OUTPUT_DIR}/{{sample}}/coverage.sub{{fraglen_lim}}bp-fragments.{{strand}}.bedGraph'
+    params:
+        plus_minus = lambda wildcards: {"pos": "+", "neg": "-"}[wildcards.strand],
+    shell:
+        """
+        export LANG=C
+        export LC_COLLATE=C
+        zcat {input.ta} | \
+          awk '($3-$2) <= {wildcards.fraglen_lim}' | \
+          sort -k1,1 -k2,2n | \
+          bedtools genomecov -5 -bg -strand {params.plus_minus} -g {input.genome_file} -i stdin | \
+          sort -k1,1 -k2,2n > {output.bedGraph}
+        """
+
+rule create_atac_bigwig:
+    """ sorted.bedGraph -> bw
+    """
+    input:
+        genome_file = GENOME_FILE,
+        bedGraph = f'{OUTPUT_DIR}/{{sample}}/coverage.sub{{fraglen_lim}}bp-fragments.{{strand}}.bedGraph'
+    output:
+        bw = f'{OUTPUT_DIR}/{{sample}}/coverage.sub{{fraglen_lim}}bp-fragments.{{strand}}.bw'
+    shell:
+        """
+        bedGraphToBigWig {input.bedGraph} {input.genome_file} {output.bw}
+        """
+        
+        
