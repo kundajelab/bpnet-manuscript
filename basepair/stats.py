@@ -92,7 +92,8 @@ def ols_formula(df, dependent_var, *excluded_cols):
 def tidy_ols(results):
     smry = results.summary()
     coef = smry.tables[1]
-    return pd.DataFrame(coef.data[1:], columns=coef.data[0])
+    df = pd.DataFrame(coef.data[1:], columns=coef.data[0])
+    return df.set_index('').astype(float)
 
 # ----------------------------------------
 # different smoothing functions
