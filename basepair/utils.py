@@ -1,6 +1,7 @@
 import logging
 import sys
 import os
+import hashlib
 import pickle
 import json
 import subprocess
@@ -65,6 +66,16 @@ def remove_exists(output_path, overwrite=False):
             os.remove(output_path)
         else:
             raise ValueError(f"File exists {str(output_path)}. Use overwrite=True to overwrite it")
+
+
+def md5sum(file_path):
+    # https://stackoverflow.com/questions/1131220/get-md5-hash-of-big-files-in-python
+    md5o = hashlib.md5()
+    with open(file_path, 'rb') as f:
+        # read in 1MB chunks
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            md5o.update(chunk)
+    return md5o.hexdigest()
 
 
 def write_pkl(obj, fname, create_dirs=True, protocol=2):
