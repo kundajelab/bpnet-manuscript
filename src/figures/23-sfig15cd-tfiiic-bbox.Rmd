@@ -1,5 +1,5 @@
 ---
-title: "fig4ef_sfig5ef-tfiiic-bbox: TFIIIC B-box"
+title: "sfig15cd-tfiiic-bbox: TFIIIC B-box"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -33,14 +33,13 @@ The B-box bound by the TFIIIC POLIII subunit. Typically, the B-box will be locat
 
 ```{r, warning=F, message=F}
 #Standard packages
-source("https://bioconductor.org/biocLite.R")
 library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
 library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
 library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="18-fig4ef_sfig5ef-tfiiic-bbox", width=16, height=20)
+options(knitr.figure_dir="figures/23-sfig15cd-tfiiic-bbox_manuscript_data", width=16, height=20)
 
 #Lab sources
 source("rscripts/granges_common.r")
@@ -194,7 +193,7 @@ overlap_percent_df
 
 # Conservation of tRNA-overlapping and no-overlapping bbox
 
-```{r sfig5f-tfiiic-bbox}
+```{r sfig15cd-tfiiic-bbox}
 #Does conservation correlate with overlap? We will now redo this analysis using the same width in conservation (the palindromic portion).
 bbox_regions_trimmed_comb_with_cons$overlap<-"none"
 bbox_regions_trimmed_comb_with_cons$overlap[unique(trna_and_bbox_overlap@to)]<-"tRNA gene overlap"
@@ -217,7 +216,7 @@ print(bbox_plot)
 
 ## Amino acid and anticodon summary
 
-```{r fig4e-tfiiic-bbox}
+```{r sfig15cd-tfiiic-bbox-with-anticodon}
 #Prepare df
 trnas_overlapping_with_bbox<-trnas[trna_and_bbox_overlap@from]
 trnas_overlapping_with_bbox_df<-as.data.frame(trnas_overlapping_with_bbox)
@@ -249,19 +248,19 @@ print(trna_frequency_plot)
 
 # Amino acid summary 
 
-```{r fig4f-tfiiic-bbox}
+```{r}
 aa_summary<-table(trnas_overlapping_with_bbox_df$aa) %>% as.data.frame
 aa_summary$Var1<-factor(aa_summary$Var1, levels=aa_summary$Var1[order(aa_summary$Freq, decreasing=F)])
 aa_summary<-subset(aa_summary, Var1 != "Und" & Var1 != "SeC" & Var1 != "Sup") #Drop unknown levels
-
-ggplot(aa_summary, aes(Var1, Freq))+
-  geom_bar(stat="identity")+
-  scale_y_continuous(name="Frequency")+
-  scale_x_discrete(name="Anticodon")+
-  coord_flip()+
-  ggtitle("tRNA overlapping B-box amino acid frequency")+
-  theme_classic()+
-  theme(text=element_text(size=20), legend.position="none")
+# 
+# ggplot(aa_summary, aes(Var1, Freq))+
+#   geom_bar(stat="identity")+
+#   scale_y_continuous(name="Frequency")+
+#   scale_x_discrete(name="Anticodon")+
+#   coord_flip()+
+#   ggtitle("tRNA overlapping B-box amino acid frequency")+
+#   theme_classic()+
+#   theme(text=element_text(size=20), legend.position="none")
 ```
 
 # Testing presence of Oct1 (Oct4_like) upstream
@@ -322,7 +321,7 @@ start(bbox_overlap_str_reass[strand_is_pos])<-start(bbox_overlap_str_reass[stran
 
 If we flip Oct4 to the orientation of the tRNAs that the B-box occurs across, can we consolidate the profile?
 
-```{r fig4e-tfiiic-bbox-profile}
+```{r sfig15cd-tfiiic-bbox-profile}
 #Motif combined and simplified
 oct4_profile_plot_combined_summarized<-exo_metapeak(gr = resize(subset(bbox_overlap_str_reass), 1, "start"), 
                sample=sample.list$oct4, 
@@ -361,7 +360,7 @@ bbox_overlapping_with_trnas_distance_df$end_dist_corrected[which(strand(bbox_ove
 
 ## Plot Bbox sequences with strand reorientation
 
-```{r fig4e-tfiiic-bbox-sequence}
+```{r sfig15cd-tfiiic-bbox-sequence}
 #Obtain start site markers
 trna_markers<-data.frame(row=1:length(bbox_overlapping_with_trnas), start_dist_from_motif=bbox_overlapping_with_trnas_distance_df$dist_corrected, end_dist_from_motif = bbox_overlapping_with_trnas_distance_df$end_dist_corrected)
 trna_markers$row<-factor(trna_markers$row, levels=trna_markers$row[order(trna_markers$start_dist_from_motif)])

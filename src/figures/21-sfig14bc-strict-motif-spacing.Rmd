@@ -1,5 +1,5 @@
 ---
-title: "fig3g, sfig4b: Spacing of Motifs across Transposable Elements"
+title: "sfig14bc: Spacing of Motifs across Transposable Elements"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -31,14 +31,13 @@ Motif pairs occur across transposable elements at different spacing than others.
 
 ```{r, warning=F, message=F}
 #Standard packages
-source("https://bioconductor.org/biocLite.R")
 library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
 library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
 library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="16-fig3g_sfig4b-strict-motif-spacing", width=16, height=20)
+options(knitr.figure_dir="figures/21-sfig14bc-strict-motif-spacing", width=16, height=20)
 
 #Lab sources
 source("rscripts/granges_common.r")
@@ -123,7 +122,8 @@ gunzip mm10.fa.out.gz
 
 ```{r, eval=F}
 repeats.df<-read.table("data/mm10.fa.out", header=FALSE, sep="", skip=3, as.is=TRUE, col.names=1:15, fill=TRUE)
-colnames(repeats.df)<-c("SW_score","perc_div","perc_del","perc_ins","chr","start","end","left","strand","matching_repeat","repeat_class","position_start","position_end","repeat","id")
+colnames(repeats.df)<-c("SW_score","perc_div","perc_del","perc_ins","chr","start","end","left","strand",
+                        "matching_repeat","repeat_class","position_start","position_end","repeat","id")
 repeats.df$strand[repeats.df$strand=="C"]<-"-"
 repeats.gr<-makeGRangesFromDataFrame(repeats.df, keep.extra.columns = T, starts.in.df.are.0based = T)
 saveRDS(repeats.gr, "data/rdata/repeatmasker.mm10.gr.rds")
@@ -288,7 +288,7 @@ spacing_vs_class_freq<-motif_pair_erv_frequencies(df = motif_pairs_with_tes_no_p
 
 ## Rank based on counts frequency with thresholded values
 
-```{r fig3g-strict-motif-spacing}
+```{r sfig14bc-strict-motif-spacing}
 
 plot_motif_pair_rankings<-function(df, spacing_count_threshold=0, top_annotation_idx=10, max_dist = 100, min_dist = 6){
 

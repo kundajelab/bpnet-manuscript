@@ -1,0 +1,371 @@
+---
+title: 'figure 1bc: Comparing ChIP-nexus and ChIP-seq of Oct4 and Sox2'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+We want to plot ChIP-nexus and ChIP-seq peaks based on canonical Oct/Sox, Sox, and Klf4 motifs for ChIP-seq and ChIP-nexus data to compare resolution quality.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
+library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2019_bpnet/")
+options(knitr.figure_dir="figures/15-fig1bc-oct4-sox2-comparison", width=16, height=20)
+
+#Lab sources
+source("rscripts/granges_common.r")
+source("rscripts/metapeak_common.r")
+source("rscripts/knitr_common.r")
+source("rscripts/caching.r")
+source("rscripts/multiplot.R")
+
+#Specific packages
+library(grid)
+library(lattice)
+library(gtable)
+library(latticeExtra)
+library(gridExtra)
+library(Hmisc)
+library(grid)
+library(gridExtra)
+```
+
+# Define data paths
+
+ChIP samples were normalized WRT reads per million (RPM).
+
+```{r define samples}
+manuscript_path<-"../../analysis/bpnet/publication/manuscript/mitra.stanford.edu/kundaje/avsec/chipnexus/paper/data/"
+
+# Nexus: manuscript, Seq: zeitlingerlab
+samples.list<-list(nexus = list(oct4 = list(pos = file.path(manuscript_path, "chip-nexus/Oct4/counts.pos.bw"),
+                                            neg = file.path(manuscript_path, "chip-nexus/Oct4/counts.neg.bw")),
+                                sox2 = list(pos = file.path(manuscript_path, "chip-nexus/Sox2/counts.pos.bw"),
+                                            neg = file.path(manuscript_path, "chip-nexus/Sox2/counts.neg.bw"))),
+                   chip = list (oct4 = list(rep1 = "data/bw/seq/mesc_oct4_seq_1_normalized.bw",
+                                            rep2 = "data/bw/seq/mesc_oct4_seq_2_normalized.bw"),
+                                sox2 = list(rep1 = "data/bw/seq/mesc_sox2_seq_1_normalized.bw",
+                                            rep2 = "data/bw/seq/mesc_sox2_seq_2_normalized.bw")))
+```
+
+# Locate regions
+
+Given:
+
+SOX2 motif: YYWTTGT
+OCT4SOX2 motif: YYWTTGTNATGCAAA
+
+These motifs are derived from previous de novo motif analysis in the lab and previous literature defining these canonical motifs (TherMos: Estimating protein–DNA binding energies from in vivo binding profiles, 2013). 
+
+```{r motif locations, eval=F}
+sox2_motif <- DNAString("RGRACAAWRGV") %>% 
+  vmatchPattern(., BSgenome.Mmusculus.UCSC.mm10, max.mismatch =0, fixed = "subject") 
+sox2oct4_motif <- DNAString("SYWTTGTNATGCAAA") %>% 
+  vmatchPattern(., BSgenome.Mmusculus.UCSC.mm10, max.mismatch =0, fixed = "subject") 
+sox2oct4_1mm_motif <- DNAString("SYWTTGTNATGCAAA") %>% 
+  vmatchPattern(., BSgenome.Mmusculus.UCSC.mm10, max.mismatch =1, fixed = "subject") 
+```
+
+# Calculate counts
+
+In order to find the strongest peaks for the representative plots, we will count the reads occurring at a 100bp region for each sample.
+
+```{r calculate counts, eval=F}
+#remove ChrM from Sox2 site
+sox2_motif<-sox2_motif %>% keepStandardChromosomes(pruning.mode = "coarse", species = "Mus_musculus")
+sox2_motif<-sox2_motif[seqlevels(sox2_motif) != "chrM"]
+seqlevels(sox2_motif, pruning.mode="coarse") <- seqlevels(sox2_motif)[-22]
+
+sox2oct4_motif<-sox2oct4_motif %>% keepStandardChromosomes(pruning.mode = "coarse", species = "Mus_musculus")
+sox2oct4_1mm_motif<-sox2oct4_1mm_motif %>% keepStandardChromosomes(pruning.mode = "coarse", species = "Mus_musculus")
+
+sox2_motif$sox2_signals<-abs(regionSums(regions = resize(sox2_motif, 100, fix="center"), cvg = samples.list$nexus$sox2$pos)) + 
+  abs(regionSums(regions = resize(sox2_motif, 100, fix="center"), cvg = samples.list$nexus$sox2$neg))
+sox2oct4_motif$oct4_signals<-abs(regionSums(regions = resize(sox2oct4_motif, 100, fix="center"), cvg = samples.list$nexus$oct4$pos)) + 
+  abs(regionSums(regions = resize(sox2oct4_motif, 100, fix="center"), cvg = samples.list$nexus$oct4$neg))
+sox2oct4_1mm_motif$oct4_signals<-abs(regionSums(regions = resize(sox2oct4_1mm_motif, 100, fix="center"), cvg = samples.list$nexus$oct4$pos)) + 
+  abs(regionSums(regions = resize(sox2oct4_1mm_motif, 100, fix="center"), cvg = samples.list$nexus$oct4$neg))
+
+saveRDS(sox2_motif, "data/rdata/motif_locations/sox2_motif_no_mm.rds")
+saveRDS(sox2oct4_motif, "data/rdata/motif_locations/sox2oct4_motif_0_mm.rds")
+saveRDS(sox2oct4_1mm_motif, "data/rdata/motif_locations/sox2oct4_motif_1_mm.rds")
+```
+
+# Order the data 
+
+Order the data based on counts and select top 500 peaks for each motif. Filter Sox2 instances from Sox2-Oct4 motifs.
+
+```{r order}
+#Import data
+sox2_motif<-readRDS("data/rdata/motif_locations/sox2_motif_no_mm.rds") 
+sox2oct4_motif<-readRDS("data/rdata/motif_locations/sox2oct4_motif_1_mm.rds")
+
+#Keep overlaps off
+sox2_motif<-sox2_motif[-findOverlaps(resize(sox2_motif, 500, "center"), resize(sox2oct4_motif, 500, "center"))@from]
+
+#Select top peaks
+ntop<-500
+ntop_corrected_for_oct4<-ntop
+
+if(ntop>length(sox2oct4_motif)){ntop_corrected_for_oct4<-length(sox2oct4_motif)}
+
+sox2_motif<-sox2_motif[order(sox2_motif$sox2_signals, decreasing=T)][1:(ntop)] 
+sox2oct4_motif<-sox2oct4_motif[order(sox2oct4_motif$oct4_signals, decreasing=T)][1:ntop_corrected_for_oct4]
+
+#Define motifs
+motif.list<-list(sox2 = sox2_motif,
+                 oct4 = sox2oct4_motif)
+```
+
+# Get metapeaks
+
+Obtain metapeak profiles as dataframes.
+
+```{r get metapeaks}
+#nexus
+nexus_metapeaks<-lapply(c("sox2", "oct4"), function(x){
+  lapply(c("sox2", "oct4"), function(y){
+      message(x, y)
+      peaks<-exo_metapeak(gr = resize(motif.list[[x]], 1, "start"), sample = samples.list$nexus[[y]], upstream = 200, downstream = 200) 
+      peaks$fac<-y
+      peaks$motif<-x
+      peaks[,c(1,2,3,6,7)]
+  }) %>% rbindlist
+}) %>% rbindlist
+
+#seq
+seq_metapeaks<-lapply(c("sox2", "oct4"), function(x){
+  lapply(c("sox2", "oct4"), function(y){
+      peaks<-exo_metapeak(gr = resize(motif.list[[x]], 1, "start"), sample = list(pos=samples.list$chip[[y]]$rep1, neg=samples.list$chip[[y]]$rep2), upstream = 200, downstream = 200)
+      peaks<-peaks %>% group_by(tss_distance) %>% dplyr::summarize(reads=sum(abs(reads))) # summarize(reads=sum(abs(reads))/2) #done in original analysis
+      peaks$strand<-"*"
+      peaks$fac<-y
+      peaks$motif<-x
+      peaks
+  }) %>% rbindlist
+}) %>% rbindlist
+```
+
+# Plot metapeaks
+
+Plot metapeaks together.
+
+```{r fig1c-oct4-sox2-comparison}
+#Normalize and distinguish
+nexus_metapeaks$norm_reads<-nexus_metapeaks$reads/max(nexus_metapeaks$reads)
+nexus_metapeaks$type<-"nexus"
+seq_metapeaks$norm_reads<-seq_metapeaks$reads/max(seq_metapeaks$reads)
+seq_metapeaks$type<-"seq"
+
+combined_metapeaks<-rbind(seq_metapeaks, nexus_metapeaks)
+combined_metapeaks$fac<-factor(combined_metapeaks$fac, levels=c("sox2", "oct4"), labels=c("Sox2 ChIP", "Oct4 ChIP"))
+combined_metapeaks$motif<-factor(combined_metapeaks$motif, levels=c("sox2", "oct4"), labels=c("Sox2 Motif", "Sox2-Oct4 Motif"))
+combined_metapeaks$strand<-factor(combined_metapeaks$strand, levels=c("*", "-", "+"))
+combined_metapeaks$type<-factor(combined_metapeaks$type, levels=c("seq", "nexus"))
+combined_metapeaks$tss_distance<-combined_metapeaks$tss_distance %>% as.character %>% as.numeric
+
+#Plot
+showcase<-ggplot(subset(combined_metapeaks, type=="seq"), aes(x=tss_distance, y=norm_reads))+
+  geom_area(aes(fill=type), position="identity")+
+  geom_line(data=subset(combined_metapeaks, type=="nexus"), aes(color=fac))+
+  facet_grid(fac ~ motif)+
+  scale_alpha_manual(values = c(.5, 1), guide=F)+
+  scale_fill_manual(values = c("grey50"))+
+  scale_color_manual(values = c("#3A3C97", "#9F1D20"))+
+  xlab("Distance from motif start")+
+  ylab("Normalized Signal")+
+  theme_classic()+
+  theme(text=element_text(size=20), strip.background = element_blank())
+print(showcase)
+#ggsave("figures/showcase/overlay_combined/showcase_of_motifs.pdf", showcase, height=12, width=12)
+# 
+# showcase_line<-ggplot(subset(combined_metapeaks, type=="seq"), aes(x=tss_distance, y=norm_reads))+
+#   geom_area(aes(fill=type), position="identity")+
+#   geom_line(data=subset(combined_metapeaks, type=="nexus"), aes(color=fac, group=strand))+
+#   facet_grid(fac ~ motif)+
+#   scale_alpha_manual(values = c(.5, 1), guide=F)+
+#   scale_fill_manual(values = c("grey50"))+
+#   scale_color_manual(values = c("#3A3C97", "#9F1D20"))+
+#   xlab("Distance from motif start")+
+#   ylab("Normalized Signal")+
+#   theme_classic()+
+#   theme(text=element_text(size=20), strip.background = element_blank())
+# print(showcase_line)
+# 
+# ggsave("figures/showcase/overlay_combined/showcase_of_motifs_line_plot.pdf", showcase_line, height=12, width=12)
+```
+
+# Plot heatmap of ChIP-nexus profiles
+
+In order to show that the metaprofiles are composed of sites that are all strong, we will display a heatmap of the individual regions of Sox2 and Oct4. 
+
+## Functions to plot heatmap
+
+```{r}
+#Plot heatmap
+
+#Associated functions
+normalize_each_matrix<-function(matrix_list, removal_threshold, normalize_threshold){
+  
+  max.per.gene.pos <- apply(matrix_list$pos, 1, function(x){quantile(x, normalize_threshold)})
+  min.per.gene.pos <- apply(matrix_list$pos, 1, function(x){quantile(x, removal_threshold)})
+  max.per.gene.neg <- apply(matrix_list$neg, 1, function(x){quantile(x, normalize_threshold)})
+  min.per.gene.neg <- apply(matrix_list$neg, 1, function(x){quantile(x, removal_threshold)})
+  
+  matrix.p <- matrix_list$pos
+  matrix.p [matrix.p <= min.per.gene.pos] <- NA #Remove all values that are below 50th percentile
+  matrix.p <- pmin(matrix.p / max.per.gene.pos,1) #Re-normalize values that remain.
+  
+  matrix.n <- matrix_list$neg
+  matrix.n [matrix.n <= min.per.gene.neg] <- NA
+  matrix.n <- pmin(matrix.n / max.per.gene.neg,1)
+  list(pos=matrix.p, neg=matrix.n)
+}
+
+format_matrix_for_heatmap<-function(matrix, strand, downstream, upstream){
+  mat<-as.data.frame(matrix)
+  colnames(mat)<-as.numeric((-upstream+1):downstream)
+  mat$region<-1:nrow(mat)
+  df<-melt(mat, id.vars = "region", variable.name="position", value.name="signal", variable.factor = FALSE)
+  colnames(df)<-c("region", "position", "signal")
+  #Remove NA values
+  df<-df[which(!is.na(df$signal)),]
+  df$strand<-as.character(strand)
+  df$position<-as.numeric(as.character(df$position))
+  return(df)
+}
+
+#Required inputs:
+# regions.gr = GRanges of regions desired to plot across
+# sample = list(pos="", neg="") with appropriate filepaths to the nexus bws
+
+#Optional inputs
+# order = option that can either be "sum" or "clustering" that will determine how the heatmap gets arranged. Any other value will return the order of the granges as input.
+# output_file_name = option that will write the plot to a PDF if a filepath is provided
+# reduce = option to reduce the GRanges to remove redundancies
+# upstream/downstream = how far you want your heatmap to extend relative to the center of the provided GRanges
+# alpha_value = current option to determine color balancing (in progress)
+# removal_threshold = quantile value to remove background regions
+# normalize_threshold = upper quantile value to keep background regions
+# reverse = option to reverse strand (only useful if you are plotting reverse complement of a motif, say)
+
+#Outputs: ggplot with heatmap of regions (xaxis=position, yaxis=regions, fill=quantile normalized chipnexus value)
+
+plot_nexus_heatmap<-function(regions.gr, sample, title="Heatmap of ChIP-nexus Signals", order="sum", output_file_name=NA, reduce=T, upstream=50, downstream=50, 
+                             alpha_value=.5, removal_threshold=.5, normalize_threshold=0.99, reverse=F, return_only_df = F){
+  if(reverse){strand(regions.gr) <- ifelse(strand(regions.gr) == '+', '-', '+')}
+  if(reduce){regions.gr<-GenomicRanges::reduce(regions.gr)}
+  print(length(regions.gr))
+  
+  #Get signals across regions
+  mat<-exo_metapeak_matrix(regions.gr = resize(regions.gr, 1, "start"), sample=sample, upstream=upstream, downstream=downstream)
+  
+  #Order region rows
+  if(order=="clustering"){
+    order_of_rows<-hclust(d = (dist(mat$pos+mat$neg))/2)$order
+  }
+  else if (order=="sum"){
+    nrows<-length(mat$pos[,1])
+    sum_by_rows_vec<-(apply(mat$pos, 1, sum) + abs(apply(mat$neg, 1, sum)))/2
+    order_of_rows<-order(sum_by_rows_vec, decreasing=F)
+    # #TODO: Fix row orders
+    # print(data.frame(order=order_of_rows, sum_amt=summed_by_row[order_of_rows]))
+  }
+  else{order_of_rows<-1:length(regions.gr)}
+  
+  mat$pos<-mat$pos[order_of_rows, ]
+  mat$neg<-mat$neg[order_of_rows, ]
+  
+  #Normalize matrix
+  norm_mat_matrix<-normalize_each_matrix(matrix_list = mat, removal_threshold =  removal_threshold, normalize_threshold = normalize_threshold)
+  #Format matrix
+  mat_pos.df<-format_matrix_for_heatmap(matrix = norm_mat_matrix$pos, strand = "pos", downstream = downstream, upstream = upstream)
+  mat_neg.df<-format_matrix_for_heatmap(matrix = norm_mat_matrix$neg, strand = "neg", downstream = downstream, upstream = upstream)
+  mat_final_df<-rbind(mat_pos.df, mat_neg.df)
+  #mat_pos.df$region<-factor(mat_pos.df$region, levels = order_of_rows)
+  #mat_neg.df$region<-factor(mat_neg.df$region, levels = order_of_rows)
+  
+  if(return_only_df){
+    return(mat_final_df)
+  }
+  else{
+    #Plot matrix
+    g<-ggplot()+
+      geom_tile(data=mat_pos.df, aes(x=position, y=region, fill=signal))+
+      geom_tile(data=mat_neg.df, aes(x=position, y=region, fill=-signal), alpha=alpha_value)+
+      ggtitle(title, subtitle = length(regions.gr))+
+      scale_x_continuous("Position (bp)", expand = expand_scale(mult = c(0, 0)))+
+      scale_y_continuous("Regions", expand = expand_scale(mult = c(0, 0)))+
+      scale_fill_gradientn(colors = c('#08306b', '#08519c' , '#2171b5', '#4292c6', '#6baed6', 
+                                      '#9ecae1', '#c6dbef','#deebf7', '#f7fbff', "white", '#fff5f0',
+                                      '#fee0d2','#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d','#a50f15','#67000d'), name = "norm. signal") + 
+      # scale_fill_gradient2(low="#08306b", mid="white", high="#67000d")+
+      theme_classic()+
+      theme(text=element_text(size=14), legend.position = "none", panel.grid = element_blank(), panel.border = element_blank())
+    
+    if(!is.na(output_file_name)){ggsave(filename = paste(getwd(), output_file_name, sep="/"), plot = g, width = 12, height=12)}
+    return(g)
+  }
+}
+
+```
+
+## Plot heatmaps across top 500 Oct4-Sox2 motif sites
+
+```{r fig1b-oct4sox2-heatmap}
+oct4_heatmap<-plot_nexus_heatmap(regions.gr = resize(motif.list$oct4, 1, "start"), sample = samples.list$nexus$oct4, order = "sum", upstream = 200, downstream = 200, title = "Oct4 ChIP-nexus")
+print(oct4_heatmap)
+sox2_heatmap<-plot_nexus_heatmap(regions.gr = resize(motif.list$sox2, 1, "start"), sample = samples.list$nexus$sox2, order = "sum", upstream = 200, downstream = 200, title = "Sox2 ChIP-nexus")
+print(sox2_heatmap)
+
+#Saved as .png because individual box rendered as PDFs provide very poor image viewing. 
+ggsave("figures/15-fig1bc-oct4-sox2-comparison/fig1b-oct4sox2-heatmap.png", grid.arrange(oct4_heatmap, sox2_heatmap, ncol = 2), height = 4, width = 6, dpi = "print")
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
