@@ -1,5 +1,5 @@
 ---
-title: "19-sfig4a-nanog-sox: Investigation of Nanog-Sox Heterodimer"
+title: "sfig13a: Investigation of Nanog-Sox Heterodimer"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -25,7 +25,7 @@ editor_options:
 
 # Introduction
 
-It has been previously proposed that a Nanog-Sox heterodimer is a possible motif for optimal recruitment of Nanog and Sox2: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3746198/. However, when running BPnet we have not found evidence of this occurring. In order to address this discrepancy in results, we want to do the following:
+It has been previously proposed by Gagliardi et al. that a Nanog-Sox heterodimer is a possible motif for optimal recruitment of Nanog and Sox2: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3746198/. However, when running BPnet we have not found evidence of this occurring. In order to address this discrepancy in results, we want to do the following:
 
 1. Obtain a PWM from the Nanog-Sox heterodimer from Figure 7C of the paper listed above. Use this PWM to scan the mm10 genome to obtain genomic instances of this heterodimer. Compare these genomic instances to the Nanog-specific and Sox2 motif in terms of frequency and overlap.
 2. Query these SELEX sequences in BPnet to see how BPnet treats these regions.
@@ -34,14 +34,13 @@ It has been previously proposed that a Nanog-Sox heterodimer is a possible motif
 
 ```{r, warning=F, message=F}
 #Standard packages
-source("https://bioconductor.org/biocLite.R")
-library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
-library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
+library(rtracklayer); library(GenomicRanges); library(magrittr); library(Biostrings)
+library(ggplot2); library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
 library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="19-sfig4a-nanog-sox", width=16, height=20)
+options(knitr.figure_dir="figures/20-sfig13a-nanog-sox-alternative-partner")
 
 #Lab sources
 source("rscripts/granges_common.r")
@@ -53,7 +52,6 @@ source("rscripts/metapeak_common.r")
 
 #Specific packages
 library(stringr)
-library(rBLAST)
 library(motifStack)
 library(grid)
 library(gridExtra)
@@ -78,27 +76,28 @@ bw_actual_list<-list(oct4 = list(pos = "data/bw/nexus/mesc_oct4_nexus_combined_f
                      klf4=list(pos="data/bw/nexus/mesc_klf4_nexus_combined_filtered_normalized_positive.bw",
                                neg="data/bw/nexus/mesc_klf4_nexus_combined_filtered_normalized_negative.bw"))
 
+manuscript_path<-"../../analysis/bpnet/publication/manuscript/mitra.stanford.edu/kundaje/avsec/chipnexus/paper/data/"
 #List of BPNet predictions of ChIP-nexus samples listed above.
-bw_predicted_list<-list(oct4=list(pos="data/bw/predictions/Oct4.preds.pos.bw",
-                               neg="data/bw/predictions/Oct4.preds.neg.bw"),
-                     sox2=list(pos="data/bw/predictions/Sox2.preds.pos.bw",
-                               neg="data/bw/predictions/Sox2.preds.neg.bw"),
-                     nanog=list(pos="data/bw/predictions/Nanog.preds.pos.bw",
-                               neg="data/bw/predictions/Nanog.preds.neg.bw"),
-                     klf4=list(pos="data/bw/predictions/Klf4.preds.pos.bw",
-                               neg="data/bw/predictions/Klf4.preds.neg.bw"))
+bw_predicted_list<-list(oct4=list(pos="data/predictions/Oct4.preds.pos.bw",
+                               neg="data/predictions/Oct4.preds.neg.bw"),
+                     sox2=list(pos="data/predictions/Sox2.preds.pos.bw",
+                               neg="data/predictions/Sox2.preds.neg.bw"),
+                     nanog=list(pos="data/predictions/Nanog.preds.pos.bw",
+                               neg="data/predictions/Nanog.preds.neg.bw"),
+                     klf4=list(pos="data/predictions/Klf4.preds.pos.bw",
+                               neg="data/predictions/Klf4.preds.neg.bw"))
 
 #List of BPNet importance scores of ChIP-nexus profiles listed above.
-bw_imp_list<-list(oct4="data/bw/importance/Oct4.importance.profile.bw",
-                  sox2="data/bw/importance/Sox2.importance.profile.bw",
-                  nanog="data/bw/importance/Nanog.importance.profile.bw",
-                  klf4="data/bw/importance/Klf4.importance.profile.bw")
+bw_imp_list<-list(oct4="data/predictions/Oct4.importance.profile.bw",
+                  sox2="data/predictions/Sox2.importance.profile.bw",
+                  nanog="data/predictions/Nanog.importance.profile.bw",
+                  klf4="data/predictions/Klf4.importance.profile.bw")
 
 #BED file with coordinates of each seqlet location returned by TF-MoDISco.
 seqlet_coordinates_filepath <- "data/bed/seqlet_coordinates.bed"
 
 #BED file with coordinates of each peak location trained with BPNet
-peak_coordinates_filepath <- "data/bed/peak_coordinates.bed"
+peak_coordinates_filepath <- "data/bed/peaks.bed"
 ```
 
 # Read in the Gagliardi et al. sequences
@@ -136,7 +135,7 @@ TGA_PWM_matches<-readRDS("data/rdata/nanog-sox/gagliardi_nanog_sox_pwm_matches_T
 
 As reported by Gagliardi, generate a graphical representation of the Nanog-Sox2 motif.
 
-```{r sfig4a-nanog-sox-motif-logo}
+```{r sfig13a-nanog-sox-motif-logo}
 #Plot pos motif
 CATT_PWM_matches$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, CATT_PWM_matches)
 CATT_PWM_matches.pwm<-PWM(CATT_PWM_matches$seq, type="prob")
@@ -144,7 +143,7 @@ CATT_PWM_matches_motif <- new("pcm", mat=as.matrix(CATT_PWM_matches.pwm), name="
 plot(CATT_PWM_matches_motif)
 
 #Save to PDF
-pdf("19-sfig4a-nanog-sox/sfig4a-nanog-sox-motif-logo.pdf", width = 7.8, height=3)
+pdf("figures/20-sfig13a-nanog-sox-alternative-partner/sfig13a-nanog-sox-motif-logo.pdf", width = 7.8, height=3)
 plot(CATT_PWM_matches_motif)
 dev.off()
 ```
@@ -222,13 +221,13 @@ all_motif_signals<-mclapply(unique(all_motif_regions$name), function(x){
   
 }, mc.cores=5) %>% rbindlist
 
-saveRDS(all_motif_signals, "data/rdata/nanog-sox/signal_comparisons_of_CATT.rds")
+saveRDS(all_motif_signals, "data/rdata/nanog-sox/signal_comparisons_of_CATT_manuscript.rds")
 ```
 
 ### Plot comparisons
 
-```{r sfig4a-nanog-sox-motif-heatmaps}
-all_motif_signals<-readRDS("data/rdata/nanog-sox/signal_comparisons_of_CATT.rds")
+```{r sfig13a-nanog-sox-motif-heatmaps}
+all_motif_signals<-readRDS("data/rdata/nanog-sox/signal_comparisons_of_CATT_manuscript.rds")
 all_motif_signals$motif<-factor(all_motif_signals$motif, levels=rev(c("Oct4_0", "Sox2_1", "Nanog_1", "Klf4_0", "CATT_PWM")), labels=rev(c("Oct4-Sox2", "Sox2", "Nanog", "Klf4", "Putative Motif")))
 all_motif_signals$fac<-factor(all_motif_signals$fac, levels=c("oct4", "sox2", "nanog", "klf4"), labels=c("Oct4", "Sox2", "Nanog", "Klf4"))
 
@@ -244,7 +243,7 @@ print(sig)
 #Predicted signal
 pred<-ggplot(subset(all_motif_signals, type=="predicted_signal"), aes(fac, motif, fill=med_signal))+
   geom_tile(color="black")+
-  scale_fill_gradient(low = "white", high="#4A5A76", name="RPM")+
+  scale_fill_gradient(low = "white", high="#4A5A76", name="Prediction")+
   ggtitle("Predicted signals across motifs")+
   theme_classic()+
   theme(text=element_text(size=16))
@@ -261,7 +260,7 @@ print(imp)
 
 #Write as a combined plots
 grid.newpage()
-pdf("19-sfig4a-nanog-sox/sfig4a-nanog-sox-heatmaps.pdf", width = 7, height = 12) # Open a new pdf file
+pdf("figures/20-sfig13a-nanog-sox-alternative-partner/sfig13a-nanog-sox-heatmaps.pdf", width = 7, height = 12) # Open a new pdf file
 grid.draw(rbind(rbind(ggplotGrob(sig), ggplotGrob(pred), size = "first"), ggplotGrob(imp), size = "first"))
 dev.off() # Close the file
 ```

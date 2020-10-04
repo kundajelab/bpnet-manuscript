@@ -1,0 +1,708 @@
+---
+title: "fig6_abcd and sfig21_abc: ChIP-nexus profiles and validation across CRISPR site: chr10:85,539,626-85,539,777"
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 2400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+# Introduction
+
+We seek to compare the differences between the BPNet predictions of mutating Sox2 and Nanog motifs at the site below versus the CRISPR results. 
+
+WT mm10: chr10:85,539,626-85,539,777   
+CCTCTGGGCCTTTGTTCCTCCACTGACTGTCCTCCAACAACAATTATAATGATAATAGCAGCTGCCATTATTGAGCTATTTATAGAGAGCAAGCTGTATTTCACTCATTTAATCTTCCAGCAGCAAGGCAACTGATGGCTGTGCTGGAAGTT
+
+mESC-R1_Nanog_mut_1 :we used 3 different clones: B07, B09 and F10 CCTCTGGGCCTTTGTTCCTCCACTGACTGTCCTCCAACAACAATTATAATGATAATAGCAGCTGCCATTATTGAGCTATTTATAGAGAGCAAGCTGTATTTCACTCATTTAATCTTCCAGCAGCAAGGCAACGGCTGGCTGTGCTGGAAGTT
+
+mESC-R1_Sox2_mut_1 :we used 3 different clones: B07, B11 and C10 CCTCTGGGCCTAGGTTCCTCCACTGACTGTCCTCCAACAACAATTATAATGATAATAGCAGCTGCCATTATTGAGCTATTTATAGAGAGCAAGCTGTATTTCACTCATTTAATCTTCCAGCAGCAAGGCAACTGATGGCTGTGCTGGAAGTT
+
+A second set of samples were run in the Nova-seq in order to get a set of high-quality, same time frame, same antibody samples for both the mutants and the WT. Here, we look at the results, plot them, and validate replicate consistency.
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(Rsamtools); library(data.table); library(dplyr)
+library(BSgenome.Mmusculus.UCSC.mm10); library(viridis)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2019_bpnet/")
+options(knitr.figure_dir="figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/", width=16, height=12)
+
+#Lab sources
+source("/n/projects/mw2098/shared_code/rscripts/granges_common.r")
+source("/n/projects/mw2098/shared_code/rscripts/metapeak_common.r")
+source("/n/projects/mw2098/shared_code/rscripts/knitr_common.r")
+source("/n/projects/mw2098/shared_code/rscripts/caching.r")
+source("/n/projects/mw2098/shared_code/custom/metapeak_functions.R")
+source("/n/projects/mw2098/shared_code/rscripts/multiplot.R")
+
+#Special sources
+library(stringr)
+library(signal)
+library(grid)
+library(gridExtra)
+library(readxl)
+library(DescTools)
+library(gtable)
+library(ggpubr)
+# library(ggrastr) # devtools::install_github('VPetukhov/ggrastr')
+library(patchwork)
+library(readr)
+```
+
+# Define annotations
+
+Here, define paths for coordinates and regions to validate across.
+
+```{r}
+instances.path<-"data/tsv/dfi_subset.tsv" #all CWM-mapped instances from BPNet/TF-MoDISco run
+peaks.path<-"data/bed/peaks.bed" #all peaks from OSKN that BPNet was trained/tested/validated on
+enhancers.path<-"data/xlsx/enhancer_regions_formatted_v3.xlsx" #curated set of enhancers in mESCs
+```
+
+# Define bws
+
+We will define BW sets across Sox2 CRISPR lines and Nanog CRISPR lines.
+
+## CRISPR ChIP-nexus (actual)
+
+Normalized = reads per million sample normalization
+Naming convention: `mesc_[1]_[2]_nexus_[3]_dedup_combined_normalized_[4]` where...
+
+1. Mutant state: Whether the sample was a Sox2 mutant, Nanog mutant, or WT.
+2. TF: Which TF the ChIP-nexus was conducted over.
+3. Set number: Whether the samples came from the original set of BPNet ChIP-nexus samples (set1) or the CRISPR set of ChIP-nexus samples (set2). In this .Rmd, all samples are from set2.
+4. Strand: The strand of the ChIP-nexus sample
+
+```{r}
+# Combined based on CRISPR and ChIP
+crispr_chip_set2.bw.list<-list(
+  sox2mut_sox2 = list(
+    pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_sox2crispr1_sox2_nexus_set2_dedup_combined_normalized_positive.bw",
+    neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_sox2crispr1_sox2_nexus_set2_dedup_combined_normalized_negative.bw"), 
+  sox2mut_nanog = list(
+    pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_sox2crispr1_nanog_nexus_set2_dedup_combined_normalized_positive.bw",
+    neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_sox2crispr1_nanog_nexus_set2_dedup_combined_normalized_negative.bw"),
+  nanogmut_sox2 = list(
+    pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_nanogcrispr1_sox2_nexus_set2_dedup_combined_normalized_positive.bw",
+    neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_nanogcrispr1_sox2_nexus_set2_dedup_combined_normalized_negative.bw"),
+  nanogmut_nanog = list(
+    pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_nanogcrispr1_nanog_nexus_set2_dedup_combined_normalized_positive.bw",
+    neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_nanogcrispr1_nanog_nexus_set2_dedup_combined_normalized_negative.bw"),
+  wt_sox2 = list(
+    pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_wt_sox2_nexus_set2_dedup_combined_normalized_positive.bw",
+    neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_wt_sox2_nexus_set2_dedup_combined_normalized_negative.bw"),
+  wt_nanog = list(
+    pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_wt_nanog_nexus_set2_dedup_combined_normalized_positive.bw",
+    neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set/normalized/mesc_wt_nanog_nexus_set2_dedup_combined_normalized_negative.bw"))
+```
+
+### CRISPR ChIP-nexus (actual and divided by replicate)
+
+Normalized = reads per million sample normalization
+Naming convention: `mesc_[1]_[2]_nexus_[3]_[4]_dedup_combined_normalized_[5]` where...
+
+1. Mutant state: Whether the sample was a Sox2 mutant, Nanog mutant, or WT.
+2. TF: Which TF the ChIP-nexus was conducted over.
+3. Replicate/Clone: Which technical replicate/biological clone each sample originated from.
+4. Set number: Whether the samples came from the original set of BPNet ChIP-nexus samples (set1) or the CRISPR set of ChIP-nexus samples (set2). In this .Rmd, all samples are from set2.
+5. Strand: The strand of the ChIP-nexus sample
+
+
+```{r}
+wt.nanog.bw.list<-list(rep1 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_nanog_nexus_10_set2_dedup_normalized_positive.bw", 
+                                   neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_nanog_nexus_10_set2_dedup_normalized_negative.bw"),
+                       rep2 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_nanog_nexus_11_set2_dedup_normalized_positive.bw", 
+                                   neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_nanog_nexus_11_set2_dedup_normalized_negative.bw"),
+                       rep3 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_nanog_nexus_12_set2_dedup_normalized_positive.bw", 
+                                   neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_nanog_nexus_12_set2_dedup_normalized_negative.bw"))
+
+wt.sox2.bw.list<- list(rep1 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_sox2_nexus_11_set2_dedup_normalized_positive.bw", 
+                                   neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_sox2_nexus_11_set2_dedup_normalized_negative.bw"),
+                       rep2 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_sox2_nexus_12_set2_dedup_normalized_positive.bw", 
+                                   neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/normalized/mesc_wt_sox2_nexus_12_set2_dedup_normalized_negative.bw"))
+
+sox2_crispr1.sox2.bw.list<-list(B07 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_sox2_nexus_b07_3_set2_dedup_positive.bw",
+                                           neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_sox2_nexus_b07_3_set2_dedup_negative.bw"),
+                                B11 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_sox2_nexus_b11_3_set2_dedup_positive.bw",
+                                           neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_sox2_nexus_b11_3_set2_dedup_negative.bw"),
+                                C10 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_sox2_nexus_c10_3_set2_dedup_positive.bw",
+                                           neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_sox2_nexus_c10_3_set2_dedup_negative.bw"))
+
+sox2_crispr1.nanog.bw.list<-list(B07 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_nanog_nexus_b07_4_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_nanog_nexus_b07_4_set2_dedup_negative.bw"),
+                                 B11 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_nanog_nexus_b11_4_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_nanog_nexus_b11_4_set2_dedup_negative.bw"),
+                                 C10 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_nanog_nexus_c10_4_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_sox2crispr1_nanog_nexus_c10_4_set2_dedup_negative.bw"))
+
+nanog_crispr1.sox2.bw.list<-list(B07 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_sox2_nexus_b07_1_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_sox2_nexus_b07_1_set2_dedup_negative.bw"),
+                                 B09 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_sox2_nexus_b09_1_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_sox2_nexus_b09_1_set2_dedup_negative.bw"),
+                                 F10 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_sox2_nexus_f10_1_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_sox2_nexus_f10_1_set2_dedup_negative.bw"))
+
+nanog_crispr1.nanog.bw.list<-list(B07 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_nanog_nexus_b07_2_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_nanog_nexus_b07_2_set2_dedup_negative.bw"),
+                                 B09 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_nanog_nexus_b09_2_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_nanog_nexus_b09_2_set2_dedup_negative.bw"),
+                                 F10 = list(pos = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_nanog_nexus_f10_2_set2_dedup_positive.bw",
+                                            neg = "data/bw/nexus_crispr/combined_by_crispr_chip_set_rep/mesc_nanogcrispr1_nanog_nexus_f10_2_set2_dedup_negative.bw"))
+```
+
+## BPNet ChIP-nexus (predicted)
+
+Predicted BigWig files.
+
+Naming convention: `[1]_[2]_[3]_preds` where...
+
+1. Mutant state: Whether the sample was a Sox2 mutant, Nanog mutant, or WT.
+2. TF: Which TF the ChIP-nexus was conducted over.
+3. Strand: The strand of the ChIP-nexus sample.
+
+```{r}
+#Coverage only at the CRISPR site genomic loci.
+bpnet.bw.list<-list(
+  wt_nanog = list(
+    pos = "data/bw/predictions_crispr/wt_Nanog_pos_preds.bw", 
+    neg = "data/bw/predictions_crispr/wt_Nanog_neg_preds.bw"),
+  nanogmut_nanog = list(
+    pos = "data/bw/predictions_crispr/nanog_mut_Nanog_pos_preds.bw", 
+    neg = "data/bw/predictions_crispr/nanog_mut_Nanog_neg_preds.bw"),
+  sox2mut_nanog = list(
+    pos = "data/bw/predictions_crispr/sox2_mut_Nanog_pos_preds.bw",
+    neg = "data/bw/predictions_crispr/sox2_mut_Nanog_neg_preds.bw"),
+  wt_sox2 = list(
+    pos = "data/bw/predictions_crispr/wt_Sox2_pos_preds.bw", 
+    neg = "data/bw/predictions_crispr/wt_Sox2_neg_preds.bw"),
+  nanogmut_sox2 = list(
+    pos = "data/bw/predictions_crispr/nanog_mut_Sox2_pos_preds.bw", 
+    neg = "data/bw/predictions_crispr/nanog_mut_Sox2_neg_preds.bw"),
+  sox2mut_sox2 = list(
+    pos = "data/bw/predictions_crispr/sox2_mut_Sox2_pos_preds.bw",
+    neg = "data/bw/predictions_crispr/sox2_mut_Sox2_neg_preds.bw"))
+
+#Coverage across every peak.
+bpnet.wt.bw.list<-list(
+  wt_nanog = list(
+    pos = "data/bw/predictions/Nanog.preds.pos.bw", 
+    neg = "data/bw/predictions/Nanog.preds.neg.bw"),
+  wt_sox2 = list(
+    pos = "data/bw/predictions/Sox2.preds.pos.bw", 
+    neg = "data/bw/predictions/Sox2.preds.neg.bw"))
+```
+
+# Define coordinates of interest
+
+```{r}
+#Define CRISPR sites
+region<-GRanges(seqnames = "chr10", ranges = IRanges(start = 85539626, end = 85539777), strand = "+")
+region_centered<-region %>% resize(1, "center")
+width(region)
+
+#Define motifs
+motif_coordinates.gr<-read_tsv(instances.path) %>% 
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T,
+                           start.field = "pattern_start_abs", end.field = "pattern_end_abs", seqnames.field = "example_chrom") %>%
+  subsetByOverlaps(., region, ignore.strand = T) %>% unique %>%  .[-c(3)]
+motif_coordinates.gr$name<-c("Sox2", "Nanog")
+
+export(motif_coordinates.gr, "data/bed/crispr_motif_coords.bed")
+motif_coordinates.df<-motif_coordinates.gr %>% 
+  as.data.frame(stringsAsFactors = F)
+```
+
+# Get metapeaks 
+
+```{r}
+get_obs_and_pred_profiles<-function(crisprsite.gr, crispr.list, bpnet.list, 
+                                    upstream = 150, downstream = 151){
+  
+  #Get actual ChIP-nexus signal from coordinates
+  crispr.df<-mclapply(names(crispr.list), function(x){
+    df<-exo_metapeak(gr = crisprsite.gr, sample = crispr.list[[x]], 
+                     upstream = upstream, downstream = downstream)
+    df$type<-"CRISPR"
+    df$condition<-x
+    df$position<-df$tss_distance + start(crisprsite.gr) - 1
+    df
+  }, mc.cores = 4) %>% rbindlist
+  
+  #Get predicted ChIP-nexus signal from coordinates.
+  bpnet.df<-mclapply(names(bpnet.list), function(x){
+    df<-exo_metapeak(gr = crisprsite.gr, sample = bpnet.list[[x]], 
+                     upstream = upstream, downstream = downstream)
+    df$type<-"BPNet"
+    df$condition<-x
+    df$position<-df$tss_distance + start(crisprsite.gr) - 1
+    df
+  }, mc.cores = 4) %>% rbindlist
+  
+  
+  #Have two normalization strategies:
+  #reads = obs is RPM, pred is exp(counts)*profile
+  #norm_reads = obs is prob, pred is prob.
+  crispr.df <- crispr.df %>% 
+    dplyr::group_by(type, condition) %>% 
+    dplyr::mutate(norm_reads = reads/sum(abs(reads)))  
+  bpnet.df <- bpnet.df %>% 
+    dplyr::group_by(type, condition) %>% 
+    dplyr::mutate(norm_reads = reads/sum(abs(reads)))
+  signals.df<-rbind(crispr.df, bpnet.df)
+
+  #Format DF
+  signals.df$mut<-signals.df$condition %>% 
+    stringr::str_split(., "_") %>% 
+    lapply(., function(x) x[1]) %>% unlist
+  signals.df$fac<-signals.df$condition %>% 
+    stringr::str_split(., "_") %>% 
+    lapply(., function(x) x[2]) %>% unlist
+    
+  signals.df$mut<-factor(signals.df$mut, levels = c("wt", "nanogmut", "sox2mut"), 
+                         labels = c("WT", "Nanog mutant", "Sox2 mutant"))
+  signals.df$fac<-factor(signals.df$fac, levels = c("sox2", "nanog"), 
+                         labels = c("Sox2 ChIP-nexus", "Nanog ChIP-nexus"))
+  signals.df$type<-factor(signals.df$type, levels = c("BPNet", "CRISPR"), 
+                          labels = c("BPNet predictions", "CRISPR signal"))
+  
+  signals.df$type_fac_id<-paste0(signals.df$type, ", ", signals.df$fac)
+  
+  return(signals.df)
+}
+
+crispr_chip_set2_comparison.df<-get_obs_and_pred_profiles(crisprsite.gr = region_centered, 
+                                                          crispr.list = crispr_chip_set2.bw.list, 
+                                                          bpnet.list = bpnet.bw.list)
+```
+
+# Plot different normalization approaches
+
+```{r, fig.height = 24, fig.width = 12}
+get_obs_vs_pred_plots<-function(df, output_prefix, normalized = F){
+
+  nanog_mut.plot<-ggplot(subset(df, mut != "Sox2 mutant"))+
+    geom_rect(data = motif_coordinates.df, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), alpha = .5, fill = "gray85")+
+    geom_text(data = motif_coordinates.df, aes(x = ((end-start)/2 + start), y = Inf, label = name), vjust = 2)
+  
+    if(normalized){nanog_mut.plot<-nanog_mut.plot + 
+      facet_wrap(~ type_fac_id, ncol = 2)+ 
+      geom_line(aes(x=position, y=norm_reads, group = interaction(strand, mut), color = mut), position = "identity")}
+    else{
+      nanog_mut.plot<-nanog_mut.plot + 
+      facet_wrap(~ type_fac_id, scales = "free", ncol = 2)+ 
+      geom_line(aes(x=position, y=reads, group = interaction(strand, mut), color = mut), position = "identity")
+    }
+    
+    nanog_mut.plot<-nanog_mut.plot + 
+    scale_x_continuous(name = "Genomic position (bp)", 
+                       breaks = seq(min(df$position), max(df$position), 100), 
+                       labels = paste0("chr10:", seq(min(df$position), max(df$position), 100)))+
+    scale_color_manual(values = c("#b2182b", "#2166ac"), name = "Condition")+
+    ggtitle("CRISPR and ChIP Nanog Mutant", 
+            subtitle = if(normalized){"BPNet: Prob, Nexus: Prob"}else{"BPNet: exp(counts)*profile, Nexus: RPM"})+
+    theme_classic(base_size = 8)+
+    theme(strip.text = element_text(color = "black", face = "bold"), axis.text.x = element_text(), axis.title.y = element_blank())
+  
+  sox2_mut.plot<-ggplot(subset(df, mut != "Nanog mutant"))+
+    geom_rect(data = motif_coordinates.df, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), alpha = .5, fill = "gray85")+
+    geom_text(data = motif_coordinates.df, aes(x = ((end-start)/2 + start), y = Inf, label = name), vjust = 2)
+  
+    if(normalized){sox2_mut.plot<-sox2_mut.plot + 
+      facet_wrap(~ type_fac_id, ncol = 2)+
+      geom_line(aes(x=position, y=norm_reads, group = interaction(strand, mut), color = mut), position = "identity")}
+    else{sox2_mut.plot<-sox2_mut.plot + 
+      facet_wrap(~ type_fac_id, scales = "free", ncol = 2)+
+      geom_line(aes(x=position, y=reads, group = interaction(strand, mut), color = mut), position = "identity")}
+    
+    sox2_mut.plot<-sox2_mut.plot + 
+    scale_x_continuous(name = "Genomic position (bp)", 
+                       breaks = seq(min(df$position), max(df$position), 100), 
+                       labels = paste0("chr10:", seq(min(df$position), max(df$position), 100)))+
+    scale_color_manual(values = c("#b2182b", "#2166ac"), name = "Condition")+
+    ggtitle("CRISPR and ChIP Sox2 Mutant", 
+            subtitle = if(normalized){"BPNet: Prob, Nexus: Prob"}else{"BPNet: exp(counts)*profile, Nexus: RPM"})+
+    theme_classic(base_size = 8)+
+    theme(strip.text = element_text(color = "black", face = "bold"), axis.text.x = element_text(), axis.title.y = element_blank())
+      
+  ggsave(paste0(output_prefix, ".pdf"), 
+         grid.arrange(grobs = list(nanog_mut.plot, sox2_mut.plot), ncol = 1), 
+         height = 12, width = 12)
+  ggsave(paste0(output_prefix, ".png"), 
+         grid.arrange(grobs = list(nanog_mut.plot, sox2_mut.plot), ncol = 1), 
+         height = 12, width = 12)
+  
+  return(grid.arrange(grobs = list(nanog_mut.plot, sox2_mut.plot), ncol = 1))
+}
+
+#RPM and counts*(profile)
+filler<-get_obs_vs_pred_plots(df = crispr_chip_set2_comparison.df, output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/fig6abcd-crispr-sox2-nanog")
+```
+
+# Validate using enhancer regions defined in SFig
+
+Do the profiles from the different ChIP-nexus samples (mut vs WT) look the same at the enhancers in the SFigs of the manuscript?
+
+## Define enhancers
+
+```{r}
+supp_enhancers.gr<-c(
+  GRanges("chr17", IRanges(35503970, 35504125), name = "Oct4 distal enhancer"),
+  GRanges("chr4", IRanges(55475545, 55475604), name = "Klf4 E2 enhancer"),
+  GRanges("chr6", IRanges(122707394, 122707454), name = "Nanog enhancer"),
+  GRanges("chr18", IRanges(84934461, 84934521), name = "Fbx15 enhancer"),
+  GRanges("chr1", IRanges(136680205, 136680605), name = "Zpf281 enhancer"),
+  GRanges("chr8", IRanges(89003541, 89003941), name = "Sall1 enhancer"))
+seqlevels(supp_enhancers.gr)<-seqlevels(BSgenome.Mmusculus.UCSC.mm10)
+seqinfo(supp_enhancers.gr)<-seqinfo(BSgenome.Mmusculus.UCSC.mm10)
+```
+
+## Get signals across each enhancer
+
+Get the WT regions for ChIP-nexus and BPNet signal across each enhancer region.
+
+```{r}
+tracks.df<-mclapply(1:length(supp_enhancers.gr), function(x){
+  track.df<-get_obs_and_pred_profiles(crisprsite.gr = supp_enhancers.gr[x] %>% #rep. enhancer site
+                                                      resize(width = 1, "center"), 
+                                      crispr.list = crispr_chip_set2.bw.list, 
+                                      bpnet.list = bpnet.wt.bw.list, #get general predictions for later.
+                                      upstream = 150, downstream = 151)
+  track.df$name<-supp_enhancers.gr[x]$name
+  track.df$chr<-supp_enhancers.gr[x] %>% seqnames() %>% .[1] %>% as.character
+  return(track.df)
+}, mc.cores = 6) %>% rbindlist
+```
+
+# Plot the enhancer signals
+
+```{r}
+mclapply(unique(tracks.df$name), function(x){
+  tracks.plot.df<-tracks.df %>% 
+    dplyr::filter(name == x, type == "CRISPR signal") #Keep actual signal, remove predictions.
+  tracks.plot.df$mut_fac_id<-paste0(tracks.plot.df$mut, ", ", tracks.plot.df$fac)
+  tracks.plot.df$mut_fac_id<-factor(
+    tracks.plot.df$mut_fac_id, 
+    levels = c("WT, Sox2 ChIP-nexus", "Sox2 mutant, Sox2 ChIP-nexus", 
+               "Nanog mutant, Sox2 ChIP-nexus",
+               "WT, Nanog ChIP-nexus", "Sox2 mutant, Nanog ChIP-nexus", 
+               "Nanog mutant, Nanog ChIP-nexus"),
+    labels = c("Condition: WT\nChIP: Sox2", "Condition: Sox2 CRISPR\nChIP: Sox2", 
+               "Condition: Nanog CRISPR\nChIP: Sox2",
+               "Condition: WT\nChIP: Nanog", "Condition: Sox2 CRISPR\nChIP: Nanog", 
+               "Condition: Nanog CRISPR\nChIP: Nanog"))
+  xaxis<-seq(RoundTo(min(tracks.plot.df$position), 50), 
+             RoundTo(max(tracks.plot.df$position), 50), by = 50)
+  xaxis_labels<-paste0(tracks.plot.df$chr[1], ":", xaxis)
+  
+  sox2_ylim<-tracks.plot.df %>% dplyr::filter(fac == "Sox2 ChIP-nexus") %>% 
+    .$reads %>% max(abs(.)) %>% 
+    plyr::round_any(x = ., accuracy = .2, f = ceiling)
+  nanog_ylim<-tracks.plot.df %>% dplyr::filter(fac == "Nanog ChIP-nexus") %>% 
+    .$reads %>% max(abs(.)) %>% 
+    plyr::round_any(x = ., accuracy = .2, f = ceiling)
+  
+  sox2.g<-ggplot(tracks.plot.df %>% dplyr::filter(fac == "Sox2 ChIP-nexus"), 
+                 aes(x = factor(position), y = reads))+
+    geom_line(aes(group = interaction(strand, mut_fac_id), alpha = mut), 
+              color = "#3A3C97")+
+    facet_wrap(~ mut_fac_id, ncol = 1)+
+    scale_y_continuous(name = "RPM", limits = c(-sox2_ylim, sox2_ylim))+
+    scale_alpha_manual(values = c(1, .6, .8))+
+    ggtitle(x)+
+    theme_classic()+
+    theme(legend.position = "none", panel.background = element_blank(), 
+          strip.background = element_blank(), panel.spacing = unit(0, "lines"),
+          text = element_text(size = 8), 
+          strip.text = element_text(size = rel(.5), vjust = -4, angle = 0, hjust = 0), 
+          strip.placement = "inside", 
+          axis.title.x = element_blank(), axis.text.x = element_blank(), 
+          axis.ticks.x = element_blank(), axis.line.x = element_blank(), 
+          panel.spacing.x = element_blank())
+  
+  nanog.g<-ggplot(tracks.plot.df %>% dplyr::filter(fac == "Nanog ChIP-nexus"), 
+                  aes(x = factor(position), y = reads))+
+    geom_line(aes(group = interaction(strand, condition), alpha = mut), 
+              color = "#9F8A31")+
+    facet_wrap(~ mut_fac_id, ncol = 1)+
+    scale_y_continuous(name = "RPM", limits = c(-nanog_ylim, nanog_ylim))+
+    scale_x_discrete(name = "Enhancer region", 
+                       breaks = as.character(xaxis), 
+                       labels = xaxis_labels)+
+    scale_alpha_manual(values = c(1, .6, .8))+
+    theme_classic()+
+    theme(legend.position = "none", panel.background = element_blank(), 
+          strip.background = element_blank(), panel.spacing = unit(0, "lines"),
+          text = element_text(size = 8), 
+          strip.text = element_text(size = rel(.5), vjust = -4, angle = 0, hjust = 0), 
+          strip.placement = "inside", axis.text.x = element_text(size = 8, angle = 20, hjust = 1))
+
+  sox2.grob <- ggplotGrob(sox2.g)
+  nanog.grob <- ggplotGrob(nanog.g)
+  g <- rbind(sox2.grob, nanog.grob, size = "first")
+  g$widths <- unit.pmax(sox2.grob$widths, nanog.grob$widths)  
+
+  ggsave(paste0("figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/sfig21a_", x, "-enhancer-validation.pdf"), 
+         g, height = 6, width = 2, bg = 'transparent')
+  ggsave(paste0("figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/sfig21a_", x, "-enhancer-validation.png"), 
+         g, height = 6, width = 2, bg = 'transparent')
+  return(NULL)
+}, mc.cores = 6)
+```
+
+# Validate globally using count comparison scatter plots
+
+We want to make sure that the Sox2 and Nanog CRISPR lines only show differences across the candidate sites, but are similar otherwise. RPM comparisons can be problematic if the binding variability differs between replicates. Here, we seek to show that other peaks are reproducible between the mutant and WT.
+
+## Define regions and combinations to plot across
+
+```{r}
+nanog_peaks.gr<-import(peaks.path) %>% 
+  plyranges::filter(name == "Nanog")
+sox2_peaks.gr<-import(peaks.path) %>% 
+  plyranges::filter(name == "Sox2")
+
+nanog_motifs.gr<-readr::read_tsv(instances.path)  %>% 
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T,
+                           start.field = "pattern_start_abs", end.field = "pattern_end_abs", seqnames.field = "example_chrom") %>%
+  plyranges::filter(pattern_name == "Nanog")
+sox2_motifs.gr<-readr::read_tsv(instances.path)  %>% 
+  makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T,
+                           start.field = "pattern_start_abs", end.field = "pattern_end_abs", seqnames.field = "example_chrom") %>%
+  plyranges::filter(pattern_name == "Sox2")
+
+nanog_motifs_with_nanog_peaks.gr<-subsetByOverlaps(nanog_motifs.gr, nanog_peaks.gr, ignore.strand = T)
+sox2_motifs_with_sox2_peaks.gr<-subsetByOverlaps(sox2_motifs.gr, sox2_peaks.gr, ignore.strand = T)
+
+sox2_combinations<-grep(pattern = "_sox2", x = rev(names(crispr_chip_set2.bw.list)), value = T) %>% combn(., m=2)
+nanog_combinations<-grep(pattern = "_nanog", x = rev(names(crispr_chip_set2.bw.list)), value = T) %>% combn(., m=2)
+```
+
+## Define enhancers as a baseline comparison
+
+```{R}
+enhancers.df<-read_xlsx(enhancers.path)
+enhancers.df$mm10_chr<-enhancers.df$mm10_coordinates_curated %>% strsplit(., split = ":") %>% 
+  lapply(., function(x) x[1]) %>% 
+  unlist 
+enhancers.df$mm10_start<-enhancers.df$mm10_coordinates_curated %>% strsplit(., split = ":") %>% 
+  lapply(., function(x) x[2]) %>% 
+  unlist %>% 
+  strsplit(., split = "-") %>% 
+  lapply(., function(x) x[1]) %>% 
+  as.integer
+enhancers.df$mm10_end<-enhancers.df$mm10_coordinates_curated %>% 
+  strsplit(., split = "-") %>% 
+  lapply(., function(x) x[2]) %>% 
+  unlist %>% 
+  as.integer
+enhancers.df$mm10_strand<-"*"
+enhancers.df$enhancer_name<-enhancers.df$name
+
+#Convert to GRanges
+enhancers.gr<-enhancers.df %>% makeGRangesFromDataFrame(., keep.extra.columns = T, starts.in.df.are.0based = T, 
+                                                        seqnames.field = "mm10_chr", start.field = "mm10_start", 
+                                                        end.field = "mm10_end", strand.field = "mm10_strand")
+```
+
+## Function to plot scatterplots
+
+```{r}
+condition_comparisons<-function(peaks, combinations, 
+                                bw.list, output_prefix, title, plot_type = "scatter",
+                                region_of_interest = GRanges(seqnames = "chr10", 
+                                                             ranges = IRanges(start = 85539626, end = 85539777), 
+                                                             strand = "+"), 
+                                enhancer_regions = enhancers.gr, resize_width = 151, func = "sum",
+                                height = 1.3, width = 1.8){
+  
+  peaks<-peaks %>% GenomicRanges::reduce(.) #compact overlapping mapped motifs
+  
+  site_idx<-findOverlaps(peaks, region_of_interest, ignore.strand = T)@from
+  enh_idx<-findOverlaps(peaks, enhancers.gr, ignore.strand = T)
+  peaks$site_of_interest<-NA
+  peaks$site_of_interest[site_idx]<-"site_of_interest"
+  peaks$site_of_interest[enh_idx@from]<-"enhancer"
+  
+  peaks$site_name<-NA
+  peaks$site_name[enh_idx@from]<-enhancer_regions[enh_idx@to]$enhancer_name
+  peaks$site_name[site_idx]<-"CRISPR site"
+  
+  peaks<-peaks %>% resize(resize_width, fix = "center")
+  
+  #Get RPM signals across peaks
+  signals_across_peaks.df<-mclapply(names(bw.list), function(x){
+    if(func == "sum"){return(regionSums(regions = peaks, cvg = bw.list[[x]]$pos) + 
+                               abs(regionSums(regions = peaks, cvg = bw.list[[x]]$neg)))}
+    else if(func == "mean"){return(regionMeans(regions = peaks, cvg = bw.list[[x]]$pos) + 
+                                     abs(regionMeans(regions = peaks, cvg = bw.list[[x]]$neg)))}
+  }, mc.cores = 5) %>% as.data.frame
+  colnames(signals_across_peaks.df)<-names(bw.list)  
+  
+  df<-cbind(as.data.frame(peaks), signals_across_peaks.df)
+  df$site_of_interest<-factor(df$site_of_interest, 
+                              levels = c("site_of_interest", "enhancer"), 
+                              labels = c("CRISPR site", "Enhancer"))
+
+  #Format into pairwise comparisons
+  comparisons.plot.list<-lapply(1:ncol(combinations), function(x){
+    comparison.df<-df %>% dplyr::select(combinations[1,x], combinations[2,x], 
+                                        "site_of_interest", "site_name")
+    colnames(comparison.df)<-c("chip_x", "chip_y", "site_of_interest", "site_name")
+    
+    if(plot_type=="scatter"){
+      g<-ggplot()+
+        #Rasterize layer with a ton of points to reduce file size and allow for axis editing in AI.
+        # ggrastr::geom_point_rast(data = subset(comparison.df, is.na(site_of_interest)), 
+        geom_point(data = subset(comparison.df, is.na(site_of_interest)), 
+                                 aes(x = log2(chip_x), y = log2(chip_y)), 
+                                 color = "grey80", size = .05)+
+        geom_abline(intercept = 0, linetype = "dashed")+
+        geom_point(data = subset(comparison.df, !is.na(site_of_interest)), 
+                   aes(x = log2(chip_x), y = log2(chip_y), color = site_of_interest), 
+                   size = .5)+
+        stat_cor(data = comparison.df, 
+                 aes(x = log2(chip_x), y = log2(chip_y)), 
+                 label.x.npc = "left", label.y.npc = "top", method = "pearson")+
+        scale_color_manual(values = c("#d73027", "#7fbc41"), name = "Site Type")+
+        scale_x_continuous(name = paste0("log2(", combinations[1,x], ")")) +
+        scale_y_continuous(name = paste0("log2(", combinations[2,x], ")")) +
+        ggtitle(paste0(basename(output_prefix), "_", combinations[1,x], "_vs_", combinations[2,x]))+
+        theme_classic()
+    }
+    else if(plot_type == "density"){
+      g<-ggplot()+
+        stat_density_2d(data = subset(comparison.df, is.na(site_of_interest)), 
+                        aes(x = log2(chip_x), y = log2(chip_y), fill = ..level..), 
+                        geom = "polygon", bins = 50)+
+        geom_abline(intercept = 0, linetype = "dashed")+
+        scale_fill_gradient(low = "gray 100", high = "gray30", name = "Bound motif\nsite density")+
+        geom_point(data = subset(comparison.df, !is.na(site_of_interest)), 
+                   aes(x = log2(chip_x), y = log2(chip_y), color = site_of_interest))+
+        scale_color_manual(values = c("#d73027", "#7fbc41"), name = "Site Type")+
+        scale_x_continuous(name = paste0("log2(", combinations[1,x], ")")) +
+        scale_y_continuous(name = paste0("log2(", combinations[2,x], ")")) +
+        ggtitle(paste0(basename(output_prefix), "_", combinations[1,x], "_vs_", combinations[2,x]))+
+        theme_classic()
+    }
+    g_minimal<-g + 
+      theme(legend.position = "none", axis.title = element_blank())
+    
+    ggsave(paste0(output_prefix, "_", combinations[1,x], "_vs_", combinations[2,x], ".png"), 
+           g_minimal, height = height, width = width, dpi = 320)
+    ggsave(paste0(output_prefix, "_", combinations[1,x], "_vs_", combinations[2,x], ".pdf"), 
+           g_minimal, height = height, width = width, dpi = 320)    
+    return(g)
+  })
+
+  return(comparisons.plot.list)
+}
+```
+
+## Plot regions
+
+### Comparisons between NOVA-seq samples
+
+```{r}
+nanog_set2_sum.plots<-condition_comparisons(peaks = nanog_motifs_with_nanog_peaks.gr, 
+                                            title = "Nanog, NOVA-seq set, 151 bp RPM sum",  
+                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21b_nanog-group-comparisons",
+                                         combinations = nanog_combinations, 
+                                         bw.list = crispr_chip_set2.bw.list)
+sox2_set2_sum.plots<-condition_comparisons(peaks = sox2_motifs_with_sox2_peaks.gr, 
+                                           title = "Sox2, NOVA-seq set, 151 bp RPM sum",  
+                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21b_sox2-group-comparisons",
+                                        combinations = sox2_combinations, 
+                                        bw.list = crispr_chip_set2.bw.list)
+```
+
+### Comparisons between replicate sets
+
+Compare between technical replicate WTs from the NOVA-seq runs using the improved antibodies. `bw.list` needs to be double nested by name -> sample pos/neg.
+
+```{r}
+nanog_wt_set2_sum.plots<-condition_comparisons(peaks = nanog_motifs_with_nanog_peaks.gr, title = "WT Nanog, NOVA-seq set, 151 bp RPM sum",  
+                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_wt-nanog",
+                                         combinations = combn(names(wt.nanog.bw.list), m=2), bw.list = wt.nanog.bw.list, width = 1.4, height = 1.1)
+sox2_wt_set2_sum.plots<-condition_comparisons(peaks = sox2_motifs_with_sox2_peaks.gr, title = "WT Sox2, NOVA-seq set, 151 bp RPM sum",  
+                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_wt-sox2",
+                                         combinations = combn(names(wt.sox2.bw.list), m=2), bw.list = wt.sox2.bw.list, width = 1.4, height = 1.1)
+sox2_sox2crispr_set2_sum.plots<-condition_comparisons(peaks = sox2_motifs_with_sox2_peaks.gr, title = "Sox2mut Sox2, NOVA-seq set, 151 bp RPM sum",  
+                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_sox2mut-sox2",
+                                         combinations = combn(names(sox2_crispr1.sox2.bw.list), m=2), bw.list = sox2_crispr1.sox2.bw.list, width = 1.4, height = 1.1)
+nanog_sox2crispr_set2_sum.plots<-condition_comparisons(peaks = nanog_motifs_with_nanog_peaks.gr, title = "Sox2mut Nanog, NOVA-seq set, 151 bp RPM sum",  
+                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_sox2mut-nanog",
+                                         combinations = combn(names(sox2_crispr1.nanog.bw.list), m=2), bw.list = sox2_crispr1.nanog.bw.list, width = 1.4, height = 1.1)
+sox2_nanogcrispr_set2_sum.plots<-condition_comparisons(peaks = sox2_motifs_with_sox2_peaks.gr, title = "Nanogmut Sox2, NOVA-seq set, 151 bp RPM sum",  
+                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_nanogmut-sox2",
+                                         combinations = combn(names(nanog_crispr1.sox2.bw.list), m=2), bw.list = nanog_crispr1.sox2.bw.list, width = 1.4, height = 1.1)
+nanog_nanogcrispr_set2_sum.plots<-condition_comparisons(peaks = nanog_motifs_with_nanog_peaks.gr, title = "Nanogmut Nanog, NOVA-seq set, 151 bp RPM sum",  
+                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_nanogmut-nanog",
+                                         combinations = combn(names(nanog_crispr1.nanog.bw.list), m=2), bw.list = nanog_crispr1.nanog.bw.list, width = 1.4, height = 1.1)
+```
+
+# SessionInfo
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -50,17 +50,21 @@ Run the following commands:
   - Figure ST3 A,D
 - [14-bpnet-chipseq-evaluation.ipynb](14-bpnet-chipseq-evaluation.ipynb)  
   - Figure ST3 B,C
-- [15-fig1b-oct4-sox2-comparison](15-fig1b-oct4-sox2-comparison.Rmd)
-  - Figure 1B
-- [16-fig3g_sfig4b-strict-motif-spacing](16-fig3g_sfig4b-strict-motif-spacing.Rmd)
-  - Figure 3G, S4B
-- [17-fig4d-nanog-variants](17-fig4d-nanog-variants.Rmd)
-  - Figure 4D
-- [18-fig4ef_sfig5ef-tfiiic-bbox](18-fig4ef_sfig5ef-tfiiic-bbox.Rmd)
-  - Figure 4E-F, S5E-F
-- [19-sfig4a-nanog-sox](19-sfig4a-nanog-sox.Rmd)
-  - Figure S4A
-- [20-sfig5abcd-motif-validation](20-sfig5abcd-motif-validation.Rmd)
-  - Figure S5A-D
-- [21-sfig8-nanog-periodicity](21-sfig8-nanog-periodicity.py)
+- [15-fig1bc-oct4-sox2-comparison](15-fig1bc-oct4-sox2-comparison.Rmd)
+  - Figure 1BC
+- [16-fig3b-nanog-variants](16-fig3b-nanog-variants.Rmd)
+  - Figure 3B
+- [17-fig6abcd_sfig21abc-crispr-sox2-nanog](17-fig6abcd_sfig21abc-crispr-sox2-nanog.Rmd)
+  - Figure 6ABCD, S21ABC
+- [18-sfig8-enhancer-annotations](18-sfig8-enhancer-annotations.Rmd)
   - Figure S8
+- [19-sfig12a-atac-validation](19-sfig12a-atac-validation.Rmd)
+  - Figure S12A
+- [20-sfig13a-nanog-sox-alternative-partner](20-sfig13a-nanog-sox-alternative-partner.Rmd)
+  - Figure S13A
+- [21-sfig14bc-strict-motif-spacing](21-sfig14bc-strict-motif-spacing.Rmd)
+  - Figure 14BC
+- [22-sfig15ab_sfig13bc-motif-validation](22-sfig15ab_sfig13bc-motif-validation.Rmd)
+  - Figure S15AB, S13BC
+- [23-sfig15cd-tfiiic-bbox](23-sfig15cd-tfiiic-bbox.Rmd)
+  - Figure S15CD

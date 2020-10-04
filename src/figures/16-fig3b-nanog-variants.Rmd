@@ -1,5 +1,5 @@
 ---
-title: "fig4d: Nanog motif variant analysis"
+title: "fig3b: Nanog motif variant analysis"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -31,14 +31,13 @@ We have observed that three motifs returned by BPnet and TF-MODISCO form a gradi
 
 ```{r, warning=F, message=F}
 #Standard packages
-source("https://bioconductor.org/biocLite.R")
 library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
 library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
 library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="17-fig4d-nanog-variants", width=16, height=20)
+options(knitr.figure_dir="figures/16-fig3b-nanog-variants_manuscript_data", width=16, height=20)
 
 #Lab sources
 source("rscripts/granges_common.r")
@@ -69,6 +68,8 @@ Import the Nanog motifs and then align them to the TCA for comparison plots.
 Nanog 1: Canonical TCA at 6bp in
 Nanog 4: TTT 10bp in
 Nanog 5: Low affinity TCA 9bp in
+
+Note: Nanog_4 is flipped to the negative strand and then aligned to the TCA.
 
 ```{r import nanog motifs}
 reshape_motifs<-function(gr, reposition_by){
@@ -118,11 +119,9 @@ nanog_signals_mixed<-lapply(c("Nanog_1", "Nanog_4", "Nanog_5"), function(x){
 
 # Plot aggregate signals
 
-Nanog_4 is flipped to the negative strand and then aligned to the TCA.
-
-```{r fig4d-nanog-variants}
+```{r fig3b-nanog-variants}
 limits=40
-nanog_signals_mixed_normalized<-subset(nanog_signals_mixed, fac=="nanog" & tss_distance<=limits & tss_distance>=-limits) %>% group_by(motif) %>% mutate(norm_reads=(reads/max(reads)))#normalize to maximum across motifs and factors
+nanog_signals_mixed_normalized<-subset(nanog_signals_mixed, fac=="nanog" & tss_distance<=limits & tss_distance>=-limits) %>% group_by(motif) %>% mutate(norm_reads=(reads/max(reads))) #normalize to maximum across motifs and factors
 
 nanog_mixed_combined_plot<-ggplot(nanog_signals_mixed_normalized, aes(tss_distance, reads))+
   geom_area(aes(fill=motif, group=interaction(strand, motif)), alpha=.5, position="identity")+

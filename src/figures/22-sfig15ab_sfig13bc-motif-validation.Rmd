@@ -1,5 +1,5 @@
 ---
-title: "20-sfig5abcd-motif-validation: BPnet Cofactor Validation"
+title: "sfig15ab and sfig13bc: BPnet Cofactor Validation"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -41,14 +41,13 @@ BPnet returned motifs related to TFs and binding sites that it was not explicitl
 
 ```{r, warning=F, message=F}
 #Standard packages
-source("https://bioconductor.org/biocLite.R")
 library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
 library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools); library(data.table)
 library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(dplyr)
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="20-sfig5abcd-motif-validation", width=16, height=20)
+options(knitr.figure_dir="figures/22-sfig15ab_sfig13bc-motif-validation_manuscript_data", width=16, height=20)
 
 #Lab sources
 source("rscripts/granges_common.r")
@@ -62,6 +61,8 @@ source("rscripts/metapeak_common.r")
 library(stringr)
 library(gridExtra)
 library(motifStack)
+library(TFBSTools)
+library(ggseqlogo)
 ```
 
 # Define data paths
@@ -101,8 +102,7 @@ plot_chipnexus_across_motifs<-function(motif, sample, title, ylim=NA, upstream=1
     scale_y_continuous(name="Normalized reads")+
     scale_x_continuous(name="Position w.r.t. motif start")+
     ggtitle(title)+
-    theme_classic()+
-    theme(text=element_text(size=20))
+    theme_classic(base_size = 8)
   if(!is.na(ylim[1])){g<-g+scale_y_continuous(limits=ylim, name="Normalized reads")}
   return(g)
   }
@@ -112,7 +112,7 @@ plot_chipnexus_across_motifs<-function(motif, sample, title, ylim=NA, upstream=1
 
 # Validate Zic3 motif returned by TF-MoDISco
 
-```{r sfig5a-zic3}
+```{r sfig15a-zic3, fig.height = 2.5, fig.width = 3}
 zic3_specific_motif<-import(seqlet_coordinates_filepath) %>% subset(., name=="Klf4_2")
 zic3_chip_across_zic_motif<-plot_chipnexus_across_motifs(motif=zic3_specific_motif, title = "Zic3 ChIP-nexus at Zic3 Motif", #ylim=c(-.015, .015),
                                                          sample = bw.list$zic3)
@@ -123,56 +123,20 @@ print(zic3_chip_across_zic_motif)
 
 ## Esrrb ChIP at Esrrb motif (BPNet)
 
-```{r sfig5b-esrrb-bpnet}
+```{r sfig15b-esrrb-bpnet, fig.height = 2.5, fig.width = 3}
 #Esrrb ChIP at Esrrb-specific motif
 esrrb_specific_motif<-import(seqlet_coordinates_filepath) %>% subset(., name=="Oct4_16")
+
+#Switch strand to match BPnet manuscript orientation
+neg_idx<-which(strand(esrrb_specific_motif)=="-")
+pos_idx<-which(strand(esrrb_specific_motif)=="+")
+strand(esrrb_specific_motif[neg_idx])<-"+"
+strand(esrrb_specific_motif[pos_idx])<-"-"
+
 esrrb_chip_across_esrrb_motif<-plot_chipnexus_across_motifs(motif=esrrb_specific_motif, title = "Esrrb ChIP at Esrrb Motif\n(BPNet)", 
                                                             upstream = 500, downstream = 500, ylim=c(-.015, .015),
                                                             sample = bw.list$esrrb)
 print(esrrb_chip_across_esrrb_motif)
-```
-
-## Esrrb ChIP at Esrrb motif (Non-BPnet)
-
-### Find Esrrb motif locations across genome through sequence match
-
-```{r motif locations esrrb, eval=F}
-esrrb_motif_across_genome <- DNAString("TCAAGGTCA") %>% 
-  vmatchPattern(., BSgenome.Mmusculus.UCSC.mm10, max.mismatch =0, fixed = "subject") 
-saveRDS("data/rdata/motif_locations/esrrb_TCAAGGTCA_motif_instances_0_mm.rds")
-```
-
-### Plot matches
-
-```{r sfig5b-esrrb-classic}
-#Esrrb ChIP at Esrrb-specific motif
-esrrb_motif_instances<-readRDS("data/rdata/motif_locations/esrrb_TCAAGGTCA_motif_instances_0_mm.rds")
-
-#Switch strand to match BPnet orientation
-neg_idx<-which(strand(esrrb_motif_instances)=="-")
-pos_idx<-which(strand(esrrb_motif_instances)=="+")
-strand(esrrb_motif_instances[neg_idx])<-"+"
-strand(esrrb_motif_instances[pos_idx])<-"-"
-
-#Select top 1K instances that score for Esrrb
-esrrb_motif_instances$esrrb_score<-regionMeans(esrrb_motif_instances, bw.list$esrrb$pos) + 
-  abs(regionMeans(resize(esrrb_motif_instances, 100, "center"), bw.list$esrrb$neg))
-esrrb_motif_instances<-esrrb_motif_instances[order(esrrb_motif_instances$esrrb_score, decreasing=T)][1:1000] 
-
-esrrb_chip_across_esrrb_motif<-plot_chipnexus_across_motifs(motif=resize(esrrb_motif_instances, 1), 
-                                                            title = "Esrrb ChIP at Esrrb Motif \n(Non BPNet)", upstream = 500, downstream = 500, ylim=c(-.015, .015),
-                                                            sample = bw.list$esrrb)
-print(esrrb_chip_across_esrrb_motif)
-```
-
-### Get PWM motif
-
-```{r sfig5b-esrrb-classic-motif-logo}
-esrrb_motif_instances_subset<-esrrb_motif_instances
-esrrb_motif_instances_subset$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, esrrb_motif_instances_subset)
-esrrb_motif_instances_pwm<-PWM(esrrb_motif_instances_subset$seq, type="prob")
-motif <- new("pcm", mat=as.matrix(esrrb_motif_instances_pwm), name="bin_SOLEXA")
-plot(motif)
 ```
 
 # Validate 3 Nanog motifs, Sox2 and Pbx returned by TF-MoDISco
@@ -243,22 +207,27 @@ sox2_1_motifs$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, sox2_1_motifs)
 
 ## Import Pbx motif
 
-### Find Pbx motif locations across genome through sequence match
+### PWM scan PBX across mm10
 
-```{r motif locations, eval=F}
-pbx_motif_across_genome <- DNAString("TGAKTGACAGG") %>% 
-  vmatchPattern(., BSgenome.Mmusculus.UCSC.mm10, max.mismatch =0, fixed = "subject") 
-saveRDS("data/rdata/motif_locations/pbx_TGAKTGACAGG_motif_instances_0_mm.rds")
+```{r, eval = F}
+pbx.pfm<-readJASPARMatrix("data/txt/PH0134.1.pbx.jaspar")
+pbx.pwm<-toPWM(pbx.pfm) %>% as.matrix
+
+pbx_across_mm10.gr<-matchPWM(pbx.pwm, BSgenome.Mmusculus.UCSC.mm10, min.score="50%", with.score=T)
+saveRDS(pbx_across_mm10.gr, "data/rdata/motif_locations/pbx_pwm_scan_across_mm10.granges.rds")
 ```
 
 ## Compute top scoring Pbx motif locations 
 
 ```{r import pbx motif}
-pbx_motif_instances<-readRDS("data/rdata/motif_locations/pbx_TGAKTGACAGG_motif_instances_0_mm.rds") %>% 
-  keepStandardChromosomes(species="Mus_musculus", pruning.mode = "coarse")
+pbx_motif_instances<-readRDS("data/rdata/motif_locations/pbx_pwm_scan_across_mm10.granges.rds") %>% 
+  keepStandardChromosomes(species = "Mus_musculus", pruning.mode = c("coarse")) %>% 
+    subsetByOverlaps(., import("data/bed/peaks.bed"), ignore.strand = T) %>%
+      .[seqnames(.) != "chrM"]
+
 pbx_motif_instances$pbx_score<-regionMeans(resize(pbx_motif_instances, 100, "center"), bw.list$pbx$pos) + 
   abs(regionMeans(resize(pbx_motif_instances, 100, "center"), bw.list$pbx$neg))
-pbx_motif_instances<-pbx_motif_instances[order(pbx_motif_instances$pbx_score, decreasing=T)][1:5000] 
+pbx_motif_instances<-pbx_motif_instances[order(pbx_motif_instances$pbx_score, decreasing=T)][1:1000] 
 ```
 
 ## Collect motifs
@@ -292,7 +261,7 @@ metapeaks<-lapply(names(motifs.list), function(x){
 
 ## Plot metapeaks
 
-```{r sfig5cd-nanog-pbx-sox2}
+```{r sfig13bc-nanog-pbx-sox2}
 metapeaks$fac<-factor(metapeaks$fac, levels=c("nanog", "pbx", "sox2"))
 metapeaks$motif<-factor(metapeaks$motif)
 metapeaks$strand<-factor(metapeaks$strand)
@@ -308,6 +277,14 @@ g_with_subheaders<-ggplot(metapeaks)+
   facet_grid(. ~ motif)+
   theme_classic(base_size = 8)
 print(g_with_subheaders)
+```
+
+### Get PWM motif
+
+```{r sfig13bc-pbx-classic-motif-logo}
+pbx_motif_instances$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, pbx_motif_instances)
+pbx_motif_instances_pwm<-PWM(pbx_motif_instances$seq, type="prob")
+ggseqlogo(pbx_motif_instances_pwm)
 ```
 
 #Session Information

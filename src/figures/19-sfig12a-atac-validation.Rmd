@@ -1,0 +1,499 @@
+---
+title: 'sfig12a: D.E. ATAC-seq classifications to validate motifs'
+author: "Melanie (1028-02098-001-001)"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    depth: 3
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyfoot[CO,CE]{1028-02098-001-001}
+- \fancyfoot[LE,RO]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+editor_options:
+  chunk_output_type: console
+---
+
+# Introduction
+
+The purpose of this script to investigate the difference between accessibility from `GSE134680` and https://elifesciences.org/articles/50087 in binding sites found from BPNet and more traditional PWM scans across differentially enriched ATAC-seq regions. 
+
+# Computational Setup
+
+```{r, warning=F, message=F}
+#Standard packages
+library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
+library(ggplot2) ; library(reshape2); library(plyranges); library(Rsamtools)
+library(BSgenome.Mmusculus.UCSC.mm10); library(dplyr); library(data.table)
+
+#KNITR Options
+setwd("/n/projects/mw2098/publications/2019_bpnet/")
+options(knitr.figure_dir="figures/19-sfig12a-atac-validation")
+
+#Lab sources
+source("/n/projects/mw2098/shared_code/rscripts/granges_common.r")
+source("/n/projects/mw2098/shared_code/rscripts/metapeak_common.r")
+source("/n/projects/mw2098/shared_code/rscripts/knitr_common.r")
+source("/n/projects/mw2098/shared_code/rscripts/caching.r")
+source("/n/projects/mw2098/shared_code/custom/metapeak_functions.R")
+source("/n/projects/mw2098/shared_code/rscripts/multiplot.R")
+
+#Specific sources
+library(stringr)
+library(ggpubr)
+library(readxl)
+library(stringr)
+library(gridExtra)
+library(testit)
+
+#Filepaths
+de_regions.xlsx.filepath<-"data/xlsx/GSE134652_ZHBTc4_2TS22C_DE.xlsx" #DE regions from GSE134562
+octsox_sox2_perturbations.tsv.filepath<-"data/tsv/perturbations/Oct4-Sox2_Sox2_perturb_instances.tsv.gz"
+bpnet_motif_pairs.csv.filepath<-"data/csv/motif_pairs.csv" #generated in `21_*.ipynb`
+bpnet_peaks.bed.filepath<-"data/bed/peaks.bed"
+```
+
+# Collect motifs and format into consistent fashion
+
+Here, Ziga searched for/mapped the canonical motifs using:
+
+1. MEME/FIMO
+2. Homer
+3. ChExMix
+4. BPNet: standard CWM-scanning with default cutoffs
+5. BPNet-match: using the `match` jaccardian similarity score from CWMs
+6. BPNet-seq-match: using the `seq-match` sequence match score from the CWM as a PWM.
+7. PWM-ChExMix: using the ChExMix standard results and PWM-scanning the peak regions directly.
+8. PWM-BPNet: using the BPNet standard results PWM-scanning the peak regions directly.
+
+Each of these approaches has different format outputs and columns. Here, I sought to collect them all and format for standardized analysis.
+
+## Import data from .pkl
+
+In Python, read the `.pkl` file and extract the dictionary of different mapped motifs.
+
+```{python, eval = F}
+#setup
+import os; import pandas as pd
+os.chdir(f'/n/projects/mw2098/publications/2019_bpnet/')
+
+#Import .pkl file
+def read_pickle_file(file):
+    pickle_data = pd.read_pickle(file)
+    return pickle_data
+dfi_list = read_pickle_file(f'pkl/dfi_list.incl_conservation_is_erv.pkl')
+
+#Extract coordinates and annotate method before writing as .tsv
+for key in dfi_list.keys():
+    print(key)
+    key_format = key.replace('/', '-')
+    output_file = 'data/tsv/mapped_motifs/mapped_motifs_using_' + key_format + '.tsv.gz'
+    df = pd.DataFrame(dfi_list[key]['dfi'])
+    df['method'] = key_format
+    df.to_csv(output_file, sep = '\t', index = False)
+```
+
+Once the mapped motifs have been extracted from the `.pkl` file:
+
+1. import into R
+2. convert into a GRanges
+  + ensure that coordinates being converted are 0-based or 1-based (depending on the method) prior to (2)
+3. format missing columns/differently labeled columns
+4. add all regions to a list
+5. save as a `.rds` file.
+
+```{r, eval = F}
+## Obtain from .pkl file
+motifs_BPNet.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_BPNet.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_BPNet.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_BPNet.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+motifs_BPNet.gr<-makeGRangesFromDataFrame(motifs_BPNet.df, keep.extra.columns = T, start.field = "pattern_start_abs", end.field = "pattern_end_abs", seqnames.field = "example_chrom", starts.in.df.are.0based = T)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.", 
+       motifs_BPNet.gr$pattern_len[1] == width(motifs_BPNet.gr)[1])
+
+motifs_BPNet_seqmatch.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_BPNet-seq-match.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_BPNet_seqmatch.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_BPNet-seq-match.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+motifs_BPNet_seqmatch.gr<-makeGRangesFromDataFrame(motifs_BPNet_seqmatch.df, keep.extra.columns = T, start.field = "pattern_start_abs", 
+                                                   end.field = "pattern_end_abs", seqnames.field = "example_chrom", starts.in.df.are.0based = T)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.", 
+       motifs_BPNet_seqmatch.gr$pattern_len[1] == width(motifs_BPNet_seqmatch.gr)[1])
+
+motifs_BPNet_match.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_BPNet-match.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_BPNet_match.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_BPNet-match.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+motifs_BPNet_match.gr<-makeGRangesFromDataFrame(motifs_BPNet_match.df, keep.extra.columns = T, start.field = "pattern_start_abs", 
+                                                end.field = "pattern_end_abs", seqnames.field = "example_chrom", starts.in.df.are.0based = T)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.",
+       motifs_BPNet_match.gr$pattern_len[1] == width(motifs_BPNet_match.gr)[1])
+
+motifs_BPNet_augm.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_BPNet-augm.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_BPNet_augm.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_BPNet-augm.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+motifs_BPNet_augm.df$pattern_start_abs<-motifs_BPNet_augm.df$example_start + motifs_BPNet_augm.df$pattern_start
+motifs_BPNet_augm.df$pattern_end_abs<-motifs_BPNet_augm.df$example_start + motifs_BPNet_augm.df$pattern_end
+motifs_BPNet_augm.gr<-makeGRangesFromDataFrame(motifs_BPNet_augm.df, keep.extra.columns = T, start.field = "pattern_start_abs", 
+                                               end.field = "pattern_end_abs", seqnames.field = "example_chrom", starts.in.df.are.0based = T)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.", 
+       motifs_BPNet_augm.gr$pattern_len[1] == width(motifs_BPNet_augm.gr)[1])
+
+motifs_ChExMix.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_ChExMix.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_ChExMix.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_ChExMix.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+motifs_ChExMix.df$pattern_start_abs<-motifs_ChExMix.df$example_start + motifs_ChExMix.df$pattern_start
+motifs_ChExMix.df$pattern_end_abs<-motifs_ChExMix.df$example_start + motifs_ChExMix.df$pattern_end
+motifs_ChExMix.gr<-makeGRangesFromDataFrame(motifs_ChExMix.df, keep.extra.columns = T, start.field = "pattern_start_abs", 
+                                            end.field = "pattern_end_abs", seqnames.field = "example_chrom", starts.in.df.are.0based = T)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.", 
+       motifs_ChExMix.gr$pattern_len[1] == width(motifs_ChExMix.gr)[1])
+
+motifs_Homer.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_Homer.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_Homer.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_Homer.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+colnames(motifs_Homer.df)[11:12]<-paste0("example_", colnames(motifs_Homer.df)[11:12])
+motifs_Homer.gr<-makeGRangesFromDataFrame(motifs_Homer.df, keep.extra.columns = T, start.field = "pattern_start_abs", 
+                                          end.field = "pattern_end_abs", seqnames.field = "chrom", starts.in.df.are.0based = T)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.", 
+       motifs_Homer.gr$pattern_len[1] == width(motifs_Homer.gr)[1])
+
+motifs_MEME_FIMO.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_MEME-FIMO.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_MEME_FIMO.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_MEME-FIMO.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+motifs_MEME_FIMO.df<-dplyr::select(motifs_MEME_FIMO.df,-c(stop, Chromosome, Start, End))
+motifs_MEME_FIMO.gr<-makeGRangesFromDataFrame(motifs_MEME_FIMO.df, keep.extra.columns = T, start.field = "start", 
+                                              end.field = "end", seqnames.field = "chrom", starts.in.df.are.0based = F)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.", 
+       motifs_MEME_FIMO.gr$pattern_len[1] == width(motifs_MEME_FIMO.gr)[1])
+
+motifs_PWM_BPNet.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_PWM-BPNet.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_PWM_BPNet.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_PWM-BPNet.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+motifs_PWM_BPNet.gr<-makeGRangesFromDataFrame(motifs_PWM_BPNet.df, keep.extra.columns = T, start.field = "pattern_start_abs", 
+                                              end.field = "pattern_end_abs", seqnames.field = "example_chrom", starts.in.df.are.0based = T)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.", 
+       motifs_PWM_BPNet.gr$pattern_len[1] == width(motifs_PWM_BPNet.gr)[1])
+
+motifs_PWM_ChExMix.df<-read.table("data/tsv/mapped_motifs/mapped_motifs_using_PWM-ChExMix.tsv.gz", header = F, sep = '\t', fill = T, skip = 1)
+colnames(motifs_PWM_ChExMix.df)<-readLines("data/tsv/mapped_motifs/mapped_motifs_using_PWM-ChExMix.tsv.gz",n=1) %>% 
+  gsub(pattern = "#", replacement = "", .) %>% strsplit(., split = '\t') %>% unlist
+motifs_PWM_ChExMix.gr<-makeGRangesFromDataFrame(motifs_PWM_ChExMix.df, keep.extra.columns = T, start.field = "pattern_start_abs", 
+                                                end.field = "pattern_end_abs", seqnames.field = "example_chrom", starts.in.df.are.0based = T)
+assert("`pattern_len` is not equal to width(gr), please check coordinate system.", 
+       motifs_PWM_ChExMix.gr$pattern_len[1] == width(motifs_PWM_ChExMix.gr)[1])
+
+motifs.gr.list<-list(BPNet = motifs_BPNet.gr, BPNet_match = motifs_BPNet_match.gr, BPNet_seqmatch = motifs_BPNet_seqmatch.gr, 
+                     BPNet_augm = motifs_BPNet_augm.gr, ChExMix = motifs_ChExMix.gr, Homer = motifs_Homer.gr, 
+                     MEME_FIMO = motifs_MEME_FIMO.gr, PWM_BPNet = motifs_PWM_BPNet.gr, PWM_ChExMix = motifs_PWM_ChExMix.gr)
+
+saveRDS(motifs.gr.list, "data/rdata/validation_mapped_motifs.granges.list.rds")
+
+```
+
+# Import the mapped instances for BPNet (standard), MEME/FIMO, and Homer
+
+```{r}
+motifs.gr.list <- readRDS("data/rdata/validation_mapped_motifs.granges.list.rds") %>%
+  .[c("BPNet", "MEME_FIMO", "Homer")]
+motifs.gr.list<-lapply(motifs.gr.list, function(x){names(x)<-NULL; return(x)})
+
+#Filter out unnecessary columns in Homer run
+motifs.gr.list$Homer<-motifs.gr.list$Homer %>% dplyr::select(-c("Chromosome", "Start", "End"))
+```
+
+From inspection of motif logos and number of instances, the canonical motif from MEME/FIMO and Homer were inferred:
+
+```{r}
+#Assign a column `motif_name` to MEME/FIMO
+# meme.key<-data.frame(pattern_name = c("Oct4/1", "Sox2/1", "Nanog/1", "Klf4/3"), motif_name = c("Oct4-Sox2", "Sox2", "Nanog", "Klf4"), stringsAsFactors = F)
+meme.key<-data.frame(pattern_name = c("Oct4/1", "Sox2/1"), motif_name = c("Oct4-Sox2", "Sox2"), stringsAsFactors = F)
+motifs.gr.list$MEME_FIMO<-left_join(as.data.frame(motifs.gr.list$MEME_FIMO), meme.key, by = "pattern_name") %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+
+#Assign a column `motif_name` to HOMER
+# homer.key<-data.frame(pattern_name = c("Oct4/1", "Sox2/2", "Nanog/5", "Klf4/1"), motif_name = c("Oct4-Sox2", "Sox2", "Nanog", "Klf4"), stringsAsFactors = F)
+homer.key<-data.frame(pattern_name = c("Oct4/1", "Sox2/2"), motif_name = c("Oct4-Sox2", "Sox2"), stringsAsFactors = F)
+motifs.gr.list$Homer<-left_join(as.data.frame(motifs.gr.list$Homer), homer.key, by = "pattern_name") %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+
+#Assign same columns to BPNet
+motifs.gr.list$BPNet$motif_name<-motifs.gr.list$BPNet$pattern_name
+```
+
+After assigning the correct motif names as `motif_name`, then the instances were subsetted for the four main motifs.
+
+```{r}
+# motifs.gr.list<-lapply(motifs.gr.list, function(x) x[grep(pattern = paste("^", c("Oct4-Sox2", "Sox2", "Nanog", "Klf4"), "$", sep = "", collapse = "|"), x = x$motif_name)])
+motifs.gr.list<-lapply(motifs.gr.list, function(x) x[grep(pattern = paste("^", c("Oct4-Sox2", "Sox2"), "$", sep = "", collapse = "|"), x = x$motif_name)])
+
+motifs.gr.list$BPNet$criteria_for_sequence_strength<-motifs.gr.list$BPNet$imp_weighted
+motifs.gr.list$MEME_FIMO$criteria_for_sequence_strength<-motifs.gr.list$MEME_FIMO$score
+motifs.gr.list$Homer$criteria_for_sequence_strength<-motifs.gr.list$Homer$score
+```
+
+Remove redundant instances and format motif.list into another nested list by `motif_name`.
+
+```{r}
+motifs.gr.list<-lapply(motifs.gr.list, function(x) {
+  #Format into nested list of motif_names
+  instances.gr.list<-lapply(unique(x$motif_name), function(y){
+    subset(x, motif_name == y)
+  })
+  names(instances.gr.list)<-unique(x$motif_name)
+  
+  #Find Oct4-Sox2 motif overlaps
+  s_across_os<-findOverlaps(instances.gr.list$`Sox2`, instances.gr.list$`Oct4-Sox2`, ignore.strand = T)
+  message(x$method[1], " Sox2 motifs lost: ", length(s_across_os)) #print the number of Sox2 motifs that are lost when you account for the redundancy
+  
+  #Filter each region manually for these overlaps
+  instances.gr.list$Sox2<-instances.gr.list$Sox2[-c(unique(c(s_across_os@from)))]
+  
+  return(instances.gr.list)
+})
+```
+
+# Import DE regions and format into GRanges
+
+Check differentially expressed regions specifically for differences across methods.
+
+```{r}
+#Import DE regions and convert to GRanges
+de.df<-read_xlsx(de_regions.xlsx.filepath) 
+de.df$chromosome<-paste0("chr", de.df$Chr)
+de.gr<-de.df %>% 
+  dplyr::filter(OSbound_classification == "OD" | OSbound_classification == "SD" | OSbound_classification == "CD") %>% #filter for O, S, co dependent regions
+    makeGRangesFromDataFrame(., seqnames.field = "chromosome", keep.extra.columns = T, starts.in.df.are.0based = T)
+
+de.gr$id_column<-1:length(de.gr) #Add ID column to data.
+```
+
+# Rank regions based on sequence criteria
+
+These ranks are assigned across `method` and `pattern`
+
+```{r}
+motifs_all.gr<-lapply(motifs.gr.list, function(x){
+  instances.gr.list<-mclapply(x, function(y){
+    y<-y[order(y$criteria_for_sequence_strength, decreasing = T)] #order by decreasing score column
+    y$criteria_for_sequence_strength_rank<-1:length(y)
+    return(y)
+  }, mc.cores = 4) %>% as("GRangesList") %>% unlist #Once ranked, combine into single GRanges
+}) %>% as("GRangesList") %>% unlist
+names(motifs_all.gr)<-NULL
+motifs_all.df<-as.data.frame(motifs_all.gr)
+
+```
+
+# Compute overlaps 
+
+## Look at OS classification overlap across instances (anchor)
+
+```{r}
+OS_classifications_across_instances.df<-mclapply(unique(de.gr$OSbound_classification), function(x){
+  de_subset<-subset(de.gr, OSbound_classification==x)
+  motif_vs_de_overlaps<-findOverlaps(motifs_all.gr, de_subset, ignore.strand = T)
+  overlap.vec<-rep("none", length(motifs_all.gr))
+  overlap.vec[motif_vs_de_overlaps@from]<-de_subset$id_column[motif_vs_de_overlaps@to]
+  overlap.vec
+}, mc.cores = 3) %>% as.data.frame(stringsAsFactors = F)
+colnames(OS_classifications_across_instances.df)<-unique(de.gr$OSbound_classification)
+
+#Merge into instance locations
+motifs_with_OS_class.df<-cbind(motifs_all.df, OS_classifications_across_instances.df)
+motifs_with_OS_class.gr<-motifs_with_OS_class.df %>% dplyr::select(-c("Chromosome", "Start", "End")) %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+
+#print final motif counts
+table(motifs_with_OS_class.df$motif_name, motifs_with_OS_class.df$method)
+```
+
+### Baseline via Obs/Exp overlap rates
+
+Find the baseline expected overlap rate for each motif.
+
+```{r}
+#% de across motifs
+de_across_motif_overlap_OD_baseline.df<-motifs_with_OS_class.df %>% 
+  dplyr::group_by(motif_name, method) %>% 
+    dplyr::summarize(OD_count = OD[which(OD!="none")] %>% unique %>% length, #find number of unique DE regions
+                     SD_count = SD[which(SD!="none")] %>% unique %>% length,
+                     CD_count = CD[which(CD!="none")] %>% unique %>% length)
+de_across_motif_overlap_OD_baseline.df$OD_rate <- de_across_motif_overlap_OD_baseline.df$OD_count/length(subset(de.gr, OSbound_classification=="OD")) #compute baseline rate based on total overlaps
+de_across_motif_overlap_OD_baseline.df$SD_rate <- de_across_motif_overlap_OD_baseline.df$SD_count/length(subset(de.gr, OSbound_classification=="SD"))
+de_across_motif_overlap_OD_baseline.df$CD_rate <- de_across_motif_overlap_OD_baseline.df$CD_count/length(subset(de.gr, OSbound_classification=="CD"))
+de_across_motif_overlap_OD_baseline.df
+```
+
+## Look at OS classification of motif instances within +/-100bp of peak center.
+
+This will act as a validation by which to compare the instance results. We will refer to these as `regions` because of previous code.
+
+```{r}
+#subset based on motifs that are +/-100bp relative to BPNet
+bpnet_motifs_within_200.gr <- motifs_all.gr %>% 
+  dplyr::filter(method == "BPNet") %>% 
+    subsetByOverlaps(., resize(import(bpnet_peaks.bed.filepath), 200, "center"))
+
+motifs_with_high_conf_bpnet.gr <- motifs_all.gr %>% 
+  dplyr::filter(method != "BPNet") %>%
+    c(., bpnet_motifs_within_200.gr)
+
+OS_classifications_across_hc_motifs.df<-mclapply(unique(de.gr$OSbound_classification), function(x){
+  de_subset<-subset(de.gr, OSbound_classification==x)
+  motif_vs_de_overlaps<-findOverlaps(motifs_with_high_conf_bpnet.gr, de_subset, ignore.strand = T)
+  overlap.vec<-rep("none", length(motifs_with_high_conf_bpnet.gr))
+  overlap.vec[motif_vs_de_overlaps@from]<-de_subset$id_column[motif_vs_de_overlaps@to]
+  overlap.vec
+}, mc.cores = 3) %>% as.data.frame(stringsAsFactors = F)
+colnames(OS_classifications_across_hc_motifs.df)<-unique(de.gr$OSbound_classification)
+
+#Merge into instance locations
+hcmotifs_with_OS_class.df<-cbind(motifs_with_high_conf_bpnet.gr %>% as.data.frame, OS_classifications_across_hc_motifs.df)
+hcmotifs_with_OS_class.gr<-hcmotifs_with_OS_class.df %>% dplyr::select(-c("Chromosome", "Start", "End")) %>% makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = F)
+```
+
+### Baseline via Obs/Exp overlap rates
+
+Find the baseline expected overlap rate for each +/- 100bp
+
+```{r}
+#% de across motifs
+de_across_hcmotif_overlap_OD_baseline.df<-hcmotifs_with_OS_class.df %>% 
+  dplyr::group_by(motif_name, method) %>% 
+    dplyr::summarize(OD_count = OD[which(OD!="none")] %>% unique %>% length, #find number of unique DE regions
+                     SD_count = SD[which(SD!="none")] %>% unique %>% length,
+                     CD_count = CD[which(CD!="none")] %>% unique %>% length)
+de_across_hcmotif_overlap_OD_baseline.df$OD_rate <- de_across_hcmotif_overlap_OD_baseline.df$OD_count/length(subset(de.gr, OSbound_classification=="OD")) #compute baseline rate based on total overlaps
+de_across_hcmotif_overlap_OD_baseline.df$SD_rate <- de_across_hcmotif_overlap_OD_baseline.df$SD_count/length(subset(de.gr, OSbound_classification=="SD"))
+de_across_hcmotif_overlap_OD_baseline.df$CD_rate <- de_across_hcmotif_overlap_OD_baseline.df$CD_count/length(subset(de.gr, OSbound_classification=="CD"))
+de_across_hcmotif_overlap_OD_baseline.df
+```
+
+# Develop QC curve from overlap rates across motifs
+
+As the ability of CWM/PWM matching decreases, how does the overlap rate across DE regions change?
+
+## Function to compute QC curve (counts)
+
+Data frame with 2 columns:
+`rank` is a vector of all desired ranks to be used.
+`measure` is a vector of of states that can exist as coordinate IDs or `none`. 
+
+```{r}
+compute_qc_curve_instance_counts<-function(rank_vs_measure.df){
+  ranked.df<-rank_vs_measure.df %>% 
+    dplyr::mutate(bool = (measure != "none"), is_not_dup = !duplicated(measure)) %>% 
+      dplyr::mutate(bool_dedup = (bool & is_not_dup)) %>% 
+        dplyr::mutate(ov_counts = cumsum(bool),
+                      ov_counts_dedup = cumsum(bool_dedup))
+  return(ranked.df)
+}
+```
+
+
+# Compute QC ranks of classification rate across each `pattern` and `OSClassification`
+
+## Function to compute QC ranks across a combination.
+
+```{r}
+compute_qc_across_ranks<-function(qc_combination, gr_with_OS_class, rank_name = "criteria_for_sequence_strength_rank", max_rank = 20000, cores = 9){
+  
+  qc_ranks_of_motif_combinations.df<-mclapply(1:nrow(qc_combination), function(x){
+    combo<-qc_combination[x,] #select combination
+    message(combo)
+    #subset by motif and method
+    motif_subset.df<-subset(gr_with_OS_class, as.character(motif_name) == combo$motif_name & as.character(method) == combo$method_name)  %>% as.data.frame
+    motif_subset.df<-motif_subset.df[as.integer(as.character(motif_subset.df[[rank_name]])),]#ensure that the ranking is in order
+    motif_rank.df<-data.frame(rank = motif_subset.df[[rank_name]],#[1:min(max_rank, nrow(motif_subset.df))], 
+                              measure = motif_subset.df[[combo$OSbound_classification]])#[1:min(max_rank, nrow(motif_subset.df))])
+    rank.df<-compute_qc_curve_instance_counts(rank_vs_measure.df = motif_rank.df)
+    
+    #Compute rate of deduplicate counts
+    de_subset<-subset(de.gr, as.character(OSbound_classification) == combo$OSbound_classification)
+    rank.df$os_class_count<-length(de_subset)
+    rank.df$os_class_rate<-rank.df$ov_counts_dedup/rank.df$os_class_count
+    rank.df$motif_name<-combo$motif_name
+    rank.df$method<-combo$method
+    rank.df$OSbound_classification<-combo$OSbound_classification
+    return(rank.df)
+  }, mc.cores = cores) %>% rbindlist
+  
+  return(qc_ranks_of_motif_combinations.df)
+}
+```
+
+Apply the function.
+
+```{r}
+qc_motif_combinations.df<-expand.grid(motif_name = unique(motifs_with_OS_class.df$motif_name) %>% as.character, 
+                                method_name = unique(motifs_with_OS_class.df$method %>% as.character), 
+                                OSbound_classification = unique(de.gr$OSbound_classification), stringsAsFactors = F)
+qc_ranks_of_motif_combinations.df<-compute_qc_across_ranks(qc_combination = qc_motif_combinations.df, 
+                                                           gr_with_OS_class = motifs_with_OS_class.df)
+```
+
+# Compute overlap fold enrichment
+
+```{r}
+#Melt baseline information
+de_motif_baseline.melt.df<-de_across_motif_overlap_OD_baseline.df %>% 
+  data.table %>% 
+    melt.data.table(., id.vars = c("motif_name", "method"), measure.vars = c("OD_rate", "SD_rate", "CD_rate"), 
+                    variable.name = "OSbound_classification", value.name = "baseline_rate")
+de_motif_baseline.melt.df$OSbound_classification<-gsub(pattern = "_rate", replacement = "", x = de_motif_baseline.melt.df$OSbound_classification)   
+
+#Merge in baseline information
+qc_ranks_of_motif_combinations.df<-dplyr::left_join(x = qc_ranks_of_motif_combinations.df, y = de_motif_baseline.melt.df)
+
+#Compute ov fe
+qc_ranks_of_motif_combinations.df$overlap_fold_enrichment<-qc_ranks_of_motif_combinations.df$os_class_rate/qc_ranks_of_motif_combinations.df$baseline_rate
+```
+
+# Plot the QC fold enrichment curves for the motifs
+
+Compute base overlap
+
+```{r}
+qc_ranks_of_motif_combinations_subset.df<-qc_ranks_of_motif_combinations.df %>% 
+  dplyr::filter(rank <= 10000)
+qc_ranks_of_motif_combinations_subset.df$OSbound_classification<-factor(qc_ranks_of_motif_combinations_subset.df$OSbound_classification,
+                                                                        levels = c("OD", "SD", "CD"), 
+                                                                        labels = c("Oct4-dependent", "Sox2-dependent", "Co-dependent"))
+
+qc_overlap_perc_bpnet.plot<-ggplot(qc_ranks_of_motif_combinations_subset.df, aes(x = rank, y = os_class_rate))+
+  geom_line(aes(color = motif_name, linetype = method))+
+  facet_grid(. ~ OSbound_classification, scales = "free_x")+
+  scale_color_manual(values = c("#9F1D20", "#3A3C97"), name = "Motif")+
+  scale_linetype_manual(values = c("solid", "longdash", "dotted"), name = "Method")+
+  scale_y_continuous(name = "Overlap rate of differential ATAC-seq regions")+
+  scale_x_continuous(name = "Ranked motif instances")+
+  theme_classic(base_size = 8)
+print(qc_overlap_perc_bpnet.plot)
+ggsave("figures/19-sfig12a-atac-validation/sfig12a-qc_overlap_perc_ov_bpnet_motifs_10k.pdf", qc_overlap_perc_bpnet.plot, height = 4, width = 10)
+ggsave("figures/19-sfig12a-atac-validation/sfig12a-qc_overlap_perc_ov_bpnet_motifs_10k.png", qc_overlap_perc_bpnet.plot, height = 4, width = 10)
+```
+
+# Session Information
+
+For the purposes of reproducibility, the R/Bioconductor session information is printed below:
+
+```{r sessioninfo}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
