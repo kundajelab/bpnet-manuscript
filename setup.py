@@ -23,6 +23,7 @@ requirements = [
     "gin-config",
     "gin-train",
     "pyarrow",
+    "dm-tree",
 ]
 
 test_requirements = [

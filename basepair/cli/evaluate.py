@@ -15,6 +15,7 @@ import matplotlib
 from tqdm import tqdm
 from basepair.functions import softmax
 import json
+import functools
 import os
 from concise.eval_metrics import auprc
 from concise.utils.helper import write_json
@@ -72,18 +73,6 @@ def load_data(model_dir, cache_data=False,
     return train, valid, test
 
 
-def bin_counts_max(x, binsize=2):
-    """Bin the counts
-    """
-    if binsize == 1:
-        return x
-    assert len(x.shape) == 3
-    outlen = x.shape[1] // binsize
-    xout = np.zeros((x.shape[0], outlen, x.shape[2]))
-    for i in range(outlen):
-        xout[:, i, :] = x[:, (binsize * i):(binsize * (i + 1)), :].max(1)
-    return xout
-
 
 def bin_counts_amb(x, binsize=2):
     """Bin the counts
@@ -92,29 +81,30 @@ def bin_counts_amb(x, binsize=2):
         return x
     assert len(x.shape) == 3
     outlen = x.shape[1] // binsize
-    xout = np.zeros((x.shape[0], outlen, x.shape[2])).astype(float)
-    for i in range(outlen):
-        iterval = x[:, (binsize * i):(binsize * (i + 1)), :]
-        has_amb = np.any(iterval == -1, axis=1)
-        has_peak = np.any(iterval == 1, axis=1)
-        # if no peak and has_amb -> -1
-        # if no peak and no has_amb -> 0
-        # if peak -> 1
-        xout[:, i, :] = (has_peak - (1 - has_peak) * has_amb).astype(float)
-    return xout
+    # maximum used instead of np.any.
+    has_peak = np.maximum.reduceat(x == 1, np.arange(x.shape[1], step=binsize), axis=1)
+    has_amb = np.maximum.reduceat(x == -1, np.arange(x.shape[1], step=binsize), axis=1)
+    return (has_peak - (1 - has_peak) * has_amb).astype(float)
 
 
 def bin_counts_summary(x, binsize=2, fn=np.max):
     """Bin the counts
     """
+    ufunc = {np.max: np.maximum,
+             np.sum: np.add,
+             np.mean: np.add,
+            }[fn]
     if binsize == 1:
         return x
     assert len(x.shape) == 3
     outlen = x.shape[1] // binsize
-    xout = np.zeros((x.shape[0], outlen, x.shape[2]))
-    for i in range(outlen):
-        xout[:, i, :] = np.apply_along_axis(fn, 1, x[:, (binsize * i):(binsize * (i + 1)), :])
-    return xout
+    output = ufunc.reduceat(x, np.arange(x.shape[1], step=binsize), axis=1)
+    if fn == np.mean:
+        return output / binsize
+    else:
+        return output
+
+bin_counts_max = functools.partial(bin_counts_summary, fn=np.max)
 
 
 def permute_array(arr, axis=0):
