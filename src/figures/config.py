@@ -219,6 +219,7 @@ experiments = {
         'imp_score': 'profile/wn',
           'motifs': {
            'Nanog': 'Nanog/m0_p0',
+           'Nanog2': 'Nanog/m0_p3',
   }},
     'nexus,peaks,OSNK,0,10,1,FALSE,same,0.5,64,25,0.004,4,FALSE': {
         'imp_score': 'profile/wn',
