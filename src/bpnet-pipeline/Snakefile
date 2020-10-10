@@ -24,12 +24,12 @@ SFTP = RemoteProvider(private_key="~/.ssh/id_rsa_kundajelab")  # Required for up
 MODISCO_HPARAM_FILE = "modisco.hp.yml"
 # output, benchmarks
 
-ddir = Path('')
+ddir = Path('/oak/stanford/groups/akundaje/avsec/basepair/data/processed/comparison/data/')
 www_dir = '/srv/www/kundaje/avsec/chipnexus/paper/modisco-comparison/'
 # -------------------------------------
 # Load `experiments` from gdocs
 experiments = pd.read_csv('https://docs.google.com/spreadsheets/d/1obNkUbUJZqAJZnGuK8Tw4LyY15srUQ54Ssbg2XV5Za0/export?gid=0&format=csv')
-nts = experiments[experiments.train == True]  # consider only those that have 'train' ticked
+experiments = experiments[experiments.train == True]  # consider only those that have 'train' ticked
 
 # add `peak_width seq_width gin_files dataspec gin_bindings exp`
 experiments['peak_width'] = 1000
@@ -44,6 +44,7 @@ experiments['seq_width'] = [
 experiments.peak_width = experiments.peak_width.astype(int)
 experiments.seq_width = experiments.seq_width.astype(int)
 experiments['gin_bindings'] = experiments['gin_bindings'] + ";seq_width=" + experiments['seq_width'].astype(str)
+
 
 # Add task names
 task_name_dict = {
@@ -147,6 +148,11 @@ rule run_train:
         expand("output/{exp}/seq_model.pkl",
                exp=experiments.index),
 
+rule run_imp_score:
+    input:
+        expand("output/{exp}/deeplift.imp_score.h5",
+               exp=experiments[experiments.run_modisco | experiments.imp_score_run].index),
+
 rule run_modisco:
     input:
         [f"output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5"
@@ -198,6 +204,13 @@ rule filtered_modisco:
              ]),
 
 
+rule filtered_run_modisco_score2:
+    input:
+        [f"output/{exp}/deeplift/{task}/out/{imp_score}/instances.parq/_metadata"
+         for exp in list(filt_experiments[filt_experiments.run_modisco].index)
+         for task, imp_score in get_task_imp_score(exp)],
+
+
 rule current_train_results:
     input:
         "output/model.results.finished.csv",
@@ -210,6 +223,16 @@ rule current_modisco_results:
              for task, imp_score in get_task_imp_score(exp)
              if os.path.exists(f"output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5")
              ]),
+
+
+rule filtered_current_modisco_results:
+    input:
+        SFTP.remote(
+            [f"mitra/srv/www/kundaje/avsec/chipnexus/paper/modisco-comparison/v2-output/{exp}/deeplift/{task}/out/{imp_score}/report.html"
+             for exp in list(filt_experiments[filt_experiments.run_modisco].index)
+             for task, imp_score in get_task_imp_score(exp)
+             if os.path.exists(f"output/{exp}/deeplift/{task}/out/{imp_score}/modisco.h5")
+             ]),        
 
 
 # -----------------------------------------------------------------------
@@ -238,7 +261,7 @@ rule train:
     threads: 5  # GPU machines typically have 20 cores and 4 GPU
     shell:
         """
-        if [[ $(hostname -s) = sh-* ]]; then
+        if [[ $(hostname -s) = sh* ]]; then
             module load py-tensorflow/1.6.0_py36
         fi
 
@@ -274,7 +297,7 @@ rule imp_score_deeplift:
     threads: 5  # GPU machines typically have 20 cores and 4 GPU
     shell:
         """
-        if [[ $(hostname -s) = sh-* ]]; then
+        if [[ $(hostname -s) = sh* ]]; then
             module load py-tensorflow/1.6.0_py36
         fi
 
@@ -312,7 +335,7 @@ rule null_imp_score_deeplift:
     threads: 5  # GPU machines typically have 20 cores and 4 GPU
     shell:
         """
-        if [[ $(hostname -s) = sh-* ]]; then
+        if [[ $(hostname -s) = sh* ]]; then
             module load py-tensorflow/1.6.0_py36
         fi
 

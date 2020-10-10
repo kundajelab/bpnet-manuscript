@@ -169,8 +169,11 @@ if __name__ == "__main__":
                    for name, pattern_name in motifs.items()]
     main_motifs = [p.rename(longer_pattern(p.name)) for p in main_motifs]
 
-    main_motifs_clustered = cluster_align_patterns(main_motifs, n_clusters=1)
-    dfi_subset = align_instance_center(dfi_subset, main_motifs, main_motifs_clustered, trim_frac=0.08)
+    try:
+        main_motifs_clustered = cluster_align_patterns(main_motifs, n_clusters=1)
+        dfi_subset = align_instance_center(dfi_subset, main_motifs, main_motifs_clustered, trim_frac=0.08)
+    except:
+        logger.error('Unable to run align_instance_center')
 
     logger.info("Store the file")
     dfi_subset.to_parquet(f"{model_dir}/deeplift/dfi_subset.parq", index=False, engine='fastparquet')

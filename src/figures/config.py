@@ -209,5 +209,30 @@ experiments = {
        'Zic3': 'Nanog/m0_p2',
        'Klf4': 'Klf4/m0_p0',
        'Klf4-Klf4': 'Klf4/m0_p5',
-       'Essrb': 'Klf4/m0_p3'}}
+       'Essrb': 'Klf4/m0_p3'}},
+    'nexus,peaks,OSNK,0,10,1,FALSE,same,0.5,64,25,0.004,0,FALSE': {
+        'imp_score': 'profile/wn',
+          'motifs': {
+           'Nanog': 'Nanog/m0_p0',
+  }},
+    'nexus,peaks,OSNK,0,10,1,FALSE,same,0.5,64,25,0.004,2,FALSE': {
+        'imp_score': 'profile/wn',
+          'motifs': {
+           'Nanog': 'Nanog/m0_p0',
+  }},
+    'nexus,peaks,OSNK,0,10,1,FALSE,same,0.5,64,25,0.004,4,FALSE': {
+        'imp_score': 'profile/wn',
+          'motifs': {
+           'Nanog': 'Nanog/m0_p1',
+  }},
+    'nexus,peaks,OSNK,0,10,1,FALSE,same,0.5,64,25,0.004,6,FALSE': {
+        'imp_score': 'profile/wn',
+          'motifs': {
+           'Nanog': 'Nanog/m0_p1',
+  }},
+    'nexus,peaks,OSNK,0,10,1,FALSE,same,0.5,64,25,0.004,8,FALSE': {
+        'imp_score': 'profile/wn',
+          'motifs': {
+           'Nanog': 'Nanog/m0_p1',
+  }},
 }
