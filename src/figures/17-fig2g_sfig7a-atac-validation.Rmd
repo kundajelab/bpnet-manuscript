@@ -1,5 +1,5 @@
 ---
-title: 'sfig12a: D.E. ATAC-seq classifications to validate motifs'
+title: 'fig2g and sfig7a: D.E. ATAC-seq classifications to validate motifs'
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -37,7 +37,7 @@ library(BSgenome.Mmusculus.UCSC.mm10); library(dplyr); library(data.table)
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="figures/19-sfig12a-atac-validation")
+options(knitr.figure_dir="figures/17-fig2g_sfig7a-atac-validation")
 
 #Lab sources
 source("/n/projects/mw2098/shared_code/rscripts/granges_common.r")
@@ -58,7 +58,7 @@ library(testit)
 #Filepaths
 de_regions.xlsx.filepath<-"data/xlsx/GSE134652_ZHBTc4_2TS22C_DE.xlsx" #DE regions from GSE134562
 octsox_sox2_perturbations.tsv.filepath<-"data/tsv/perturbations/Oct4-Sox2_Sox2_perturb_instances.tsv.gz"
-bpnet_motif_pairs.csv.filepath<-"data/csv/motif_pairs.csv" #generated in `21_*.ipynb`
+bpnet_motif_pairs.csv.filepath<-"data/csv/motif_pairs.csv" #generated in `22-sfig14bc-strict-motif-spacing_get_motif_pairs.ipynb`
 bpnet_peaks.bed.filepath<-"data/bed/peaks.bed"
 ```
 
@@ -474,8 +474,8 @@ qc_overlap_perc_bpnet.plot<-ggplot(qc_ranks_of_motif_combinations_subset.df, aes
   scale_x_continuous(name = "Ranked motif instances")+
   theme_classic(base_size = 8)
 print(qc_overlap_perc_bpnet.plot)
-ggsave("figures/19-sfig12a-atac-validation/sfig12a-qc_overlap_perc_ov_bpnet_motifs_10k.pdf", qc_overlap_perc_bpnet.plot, height = 4, width = 10)
-ggsave("figures/19-sfig12a-atac-validation/sfig12a-qc_overlap_perc_ov_bpnet_motifs_10k.png", qc_overlap_perc_bpnet.plot, height = 4, width = 10)
+ggsave("figures/17-fig2g_sfig7a-atac-validation/sfig12a-qc_overlap_perc_ov_bpnet_motifs_10k.pdf", qc_overlap_perc_bpnet.plot, height = 4, width = 10)
+ggsave("figures/17-fig2g_sfig7a-atac-validation/sfig12a-qc_overlap_perc_ov_bpnet_motifs_10k.png", qc_overlap_perc_bpnet.plot, height = 4, width = 10)
 ```
 
 # Session Information

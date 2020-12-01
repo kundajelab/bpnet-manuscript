@@ -1,5 +1,5 @@
 ---
-title: "fig6_abcd and sfig21_abc: ChIP-nexus profiles and validation across CRISPR site: chr10:85,539,626-85,539,777"
+title: "fig6_abcd and sfig14 and efig8ab: ChIP-nexus profiles and validation across CRISPR site: chr10:85,539,626-85,539,777"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -22,14 +22,6 @@ header-includes:
 editor_options:
   chunk_output_type: console
 ---
-
-<style type="text/css">
-.main-container {
-  max-width: 2400px;
-  margin-left: auto;
-  margin-right: auto;
-}
-</style>
 
 # Introduction
 
@@ -54,7 +46,7 @@ library(BSgenome.Mmusculus.UCSC.mm10); library(viridis)
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/", width=16, height=12)
+options(knitr.figure_dir="figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/", width=16, height=12)
 
 #Lab sources
 source("/n/projects/mw2098/shared_code/rscripts/granges_common.r")
@@ -65,6 +57,7 @@ source("/n/projects/mw2098/shared_code/custom/metapeak_functions.R")
 source("/n/projects/mw2098/shared_code/rscripts/multiplot.R")
 
 #Special sources
+library(readr)
 library(stringr)
 library(signal)
 library(grid)
@@ -75,7 +68,6 @@ library(gtable)
 library(ggpubr)
 # library(ggrastr) # devtools::install_github('VPetukhov/ggrastr')
 library(patchwork)
-library(readr)
 ```
 
 # Define annotations
@@ -99,7 +91,7 @@ Naming convention: `mesc_[1]_[2]_nexus_[3]_dedup_combined_normalized_[4]` where.
 
 1. Mutant state: Whether the sample was a Sox2 mutant, Nanog mutant, or WT.
 2. TF: Which TF the ChIP-nexus was conducted over.
-3. Set number: Whether the samples came from the original set of BPNet ChIP-nexus samples (set1) or the CRISPR set of ChIP-nexus samples (set2). In this .Rmd, all samples are from set2.
+3. Set number: Whether the samples came from the original set of BPNet ChIP-nexus samples (set1) or the CRISPR set of ChIP-nexus samples (set2). In this .Rmd, all samples are from set2 that used the Nanog Abcam antibody and the Sox2 Active Motif antibody.
 4. Strand: The strand of the ChIP-nexus sample
 
 ```{r}
@@ -230,7 +222,7 @@ region_centered<-region %>% resize(1, "center")
 width(region)
 
 #Define motifs
-motif_coordinates.gr<-read_tsv(instances.path) %>% 
+motif_coordinates.gr<-read.table(instances.path, header = T, sep = "\t") %>% 
   makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T,
                            start.field = "pattern_start_abs", end.field = "pattern_end_abs", seqnames.field = "example_chrom") %>%
   subsetByOverlaps(., region, ignore.strand = T) %>% unique %>%  .[-c(3)]
@@ -304,7 +296,7 @@ crispr_chip_set2_comparison.df<-get_obs_and_pred_profiles(crisprsite.gr = region
                                                           bpnet.list = bpnet.bw.list)
 ```
 
-# Plot different normalization approaches
+# Plot obs vs predicted profiles
 
 ```{r, fig.height = 24, fig.width = 12}
 get_obs_vs_pred_plots<-function(df, output_prefix, normalized = F){
@@ -364,7 +356,8 @@ get_obs_vs_pred_plots<-function(df, output_prefix, normalized = F){
 }
 
 #RPM and counts*(profile)
-filler<-get_obs_vs_pred_plots(df = crispr_chip_set2_comparison.df, output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/fig6abcd-crispr-sox2-nanog")
+filler<-get_obs_vs_pred_plots(df = crispr_chip_set2_comparison.df, 
+                              output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/fig6abcd-crispr-sox2-nanog")
 ```
 
 # Validate using enhancer regions defined in SFig
@@ -470,9 +463,9 @@ mclapply(unique(tracks.df$name), function(x){
   g <- rbind(sox2.grob, nanog.grob, size = "first")
   g$widths <- unit.pmax(sox2.grob$widths, nanog.grob$widths)  
 
-  ggsave(paste0("figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/sfig21a_", x, "-enhancer-validation.pdf"), 
+  ggsave(paste0("figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/sfig21a_", x, "-enhancer-validation.pdf"), 
          g, height = 6, width = 2, bg = 'transparent')
-  ggsave(paste0("figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/sfig21a_", x, "-enhancer-validation.png"), 
+  ggsave(paste0("figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/sfig21a_", x, "-enhancer-validation.png"), 
          g, height = 6, width = 2, bg = 'transparent')
   return(NULL)
 }, mc.cores = 6)
@@ -490,11 +483,11 @@ nanog_peaks.gr<-import(peaks.path) %>%
 sox2_peaks.gr<-import(peaks.path) %>% 
   plyranges::filter(name == "Sox2")
 
-nanog_motifs.gr<-readr::read_tsv(instances.path)  %>% 
+nanog_motifs.gr<-read.table(instances.path, header = T, sep = "\t")  %>% 
   makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T,
                            start.field = "pattern_start_abs", end.field = "pattern_end_abs", seqnames.field = "example_chrom") %>%
   plyranges::filter(pattern_name == "Nanog")
-sox2_motifs.gr<-readr::read_tsv(instances.path)  %>% 
+sox2_motifs.gr<-read.table(instances.path, header = T, sep = "\t")  %>% 
   makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T,
                            start.field = "pattern_start_abs", end.field = "pattern_end_abs", seqnames.field = "example_chrom") %>%
   plyranges::filter(pattern_name == "Sox2")
@@ -634,12 +627,12 @@ condition_comparisons<-function(peaks, combinations,
 ```{r}
 nanog_set2_sum.plots<-condition_comparisons(peaks = nanog_motifs_with_nanog_peaks.gr, 
                                             title = "Nanog, NOVA-seq set, 151 bp RPM sum",  
-                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21b_nanog-group-comparisons",
+                                         output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/comparisons/sfig21b_nanog-group-comparisons",
                                          combinations = nanog_combinations, 
                                          bw.list = crispr_chip_set2.bw.list)
 sox2_set2_sum.plots<-condition_comparisons(peaks = sox2_motifs_with_sox2_peaks.gr, 
                                            title = "Sox2, NOVA-seq set, 151 bp RPM sum",  
-                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21b_sox2-group-comparisons",
+                                         output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/comparisons/sfig21b_sox2-group-comparisons",
                                         combinations = sox2_combinations, 
                                         bw.list = crispr_chip_set2.bw.list)
 ```
@@ -650,22 +643,22 @@ Compare between technical replicate WTs from the NOVA-seq runs using the improve
 
 ```{r}
 nanog_wt_set2_sum.plots<-condition_comparisons(peaks = nanog_motifs_with_nanog_peaks.gr, title = "WT Nanog, NOVA-seq set, 151 bp RPM sum",  
-                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_wt-nanog",
+                                         output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/comparisons/sfig21c_wt-nanog",
                                          combinations = combn(names(wt.nanog.bw.list), m=2), bw.list = wt.nanog.bw.list, width = 1.4, height = 1.1)
 sox2_wt_set2_sum.plots<-condition_comparisons(peaks = sox2_motifs_with_sox2_peaks.gr, title = "WT Sox2, NOVA-seq set, 151 bp RPM sum",  
-                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_wt-sox2",
+                                         output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/comparisons/sfig21c_wt-sox2",
                                          combinations = combn(names(wt.sox2.bw.list), m=2), bw.list = wt.sox2.bw.list, width = 1.4, height = 1.1)
 sox2_sox2crispr_set2_sum.plots<-condition_comparisons(peaks = sox2_motifs_with_sox2_peaks.gr, title = "Sox2mut Sox2, NOVA-seq set, 151 bp RPM sum",  
-                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_sox2mut-sox2",
+                                         output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/comparisons/sfig21c_sox2mut-sox2",
                                          combinations = combn(names(sox2_crispr1.sox2.bw.list), m=2), bw.list = sox2_crispr1.sox2.bw.list, width = 1.4, height = 1.1)
 nanog_sox2crispr_set2_sum.plots<-condition_comparisons(peaks = nanog_motifs_with_nanog_peaks.gr, title = "Sox2mut Nanog, NOVA-seq set, 151 bp RPM sum",  
-                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_sox2mut-nanog",
+                                         output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/comparisons/sfig21c_sox2mut-nanog",
                                          combinations = combn(names(sox2_crispr1.nanog.bw.list), m=2), bw.list = sox2_crispr1.nanog.bw.list, width = 1.4, height = 1.1)
 sox2_nanogcrispr_set2_sum.plots<-condition_comparisons(peaks = sox2_motifs_with_sox2_peaks.gr, title = "Nanogmut Sox2, NOVA-seq set, 151 bp RPM sum",  
-                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_nanogmut-sox2",
+                                         output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/comparisons/sfig21c_nanogmut-sox2",
                                          combinations = combn(names(nanog_crispr1.sox2.bw.list), m=2), bw.list = nanog_crispr1.sox2.bw.list, width = 1.4, height = 1.1)
 nanog_nanogcrispr_set2_sum.plots<-condition_comparisons(peaks = nanog_motifs_with_nanog_peaks.gr, title = "Nanogmut Nanog, NOVA-seq set, 151 bp RPM sum",  
-                                         output_prefix = "figures/17-fig6abcd_sfig21abc-crispr-sox2-nanog/comparisons/sfig21c_nanogmut-nanog",
+                                         output_prefix = "figures/18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog/comparisons/sfig21c_nanogmut-nanog",
                                          combinations = combn(names(nanog_crispr1.nanog.bw.list), m=2), bw.list = nanog_crispr1.nanog.bw.list, width = 1.4, height = 1.1)
 ```
 

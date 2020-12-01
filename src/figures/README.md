@@ -54,17 +54,17 @@ Run the following commands:
   - Figure 1BC
 - [16-fig3b-nanog-variants](16-fig3b-nanog-variants.Rmd)
   - Figure 3B
-- [17-fig6abcd_sfig21abc-crispr-sox2-nanog](17-fig6abcd_sfig21abc-crispr-sox2-nanog.Rmd)
-  - Figure 6ABCD, S21ABC
-- [18-sfig8-enhancer-annotations](18-sfig8-enhancer-annotations.Rmd)
-  - Figure S8
-- [19-sfig12a-atac-validation](19-sfig12a-atac-validation.Rmd)
-  - Figure S12A
-- [20-sfig13a-nanog-sox-alternative-partner](20-sfig13a-nanog-sox-alternative-partner.Rmd)
-  - Figure S13A
-- [21-sfig14bc-strict-motif-spacing](21-sfig14bc-strict-motif-spacing.Rmd)
-  - Figure 14BC
-- [22-sfig15ab_sfig13bc-motif-validation](22-sfig15ab_sfig13bc-motif-validation.Rmd)
-  - Figure S15AB, S13BC
-- [23-sfig15cd-tfiiic-bbox](23-sfig15cd-tfiiic-bbox.Rmd)
-  - Figure S15CD
+- [17-fig2g_sfig7a-atac-validation](17-fig2g_sfig7a-atac-validation.Rmd)
+  - Figure 2G, S7A
+- [18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog](18-fig6abcd_sfig14_efig8ab-crispr-sox2-nanog.Rmd)
+  - Figure S6ABCD, S14, ST8AB
+- [19-sfig5-enhancer-annotations](19-sfig5-enhancer-annotations.Rmd)
+  - Figure S5
+- [20-sfig8a-nanog-sox-alternative-partner](20-sfig8a-nanog-sox-alternative-partner.Rmd)
+  - Figure S8A
+- [21-sfig8bc_efig5cd-motif-validation](21-sfig8bc_efig5cd-motif-validation.Rmd)
+  - Figure S8BC, ST5CD
+- [22-sfig9_efig5b-strict-motif-spacing](22-sfig9_efig5b-strict-motif-spacing.Rmd)
+  - Figure S9, ST5B
+- [23-efig5ef-tfiiic-bbox](23-efig5ef-tfiiic-bbox.Rmd)
+  - Figure ST5EF

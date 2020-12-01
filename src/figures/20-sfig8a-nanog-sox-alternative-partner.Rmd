@@ -1,5 +1,5 @@
 ---
-title: "sfig13a: Investigation of Nanog-Sox Heterodimer"
+title: "sfig8a: Investigation of Nanog-Sox Heterodimer"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -40,7 +40,7 @@ library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="figures/20-sfig13a-nanog-sox-alternative-partner")
+options(knitr.figure_dir="figures/20-sfig8a-nanog-sox-alternative-partner")
 
 #Lab sources
 source("rscripts/granges_common.r")
@@ -62,9 +62,6 @@ library(gridExtra)
 ```{r define data}
 #.TXT files with sequences from Gagliardi et al: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3746198/, Figure 7C
 CATT_seq_filepath <- "data/txt/gagliardi_selex_sequences_aligned_to_CATT.txt"
-
-#.TXT files with same sequences as link above, but with manual realignment to the TGA, not the CATT component of the sequences.
-TGA_seq_filepath <- "data/txt/gagliardi_selex_sequences_julias_alignment.txt"
 
 # List of ChIP-nexus samples that were combined across replicates, blacklisted according to mm10, and normalized to reads per million (RPM). 
 bw_actual_list<-list(oct4 = list(pos = "data/bw/nexus/mesc_oct4_nexus_combined_filtered_normalized_positive.bw",
@@ -102,18 +99,16 @@ peak_coordinates_filepath <- "data/bed/peaks.bed"
 
 # Read in the Gagliardi et al. sequences
 
-Thanks to Julia, teh sequences from Gagliardi et al (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3746198/) are typed out in a text file! We padded the sequences with N's to align them to CATT (CATT_seq) and maintain Julia's alignment of sequences (TGA_seq). Both will be checked for matches.
+The sequences from Gagliardi et al (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3746198/) are typed out in a text file (kudos: Julia Zeitlinger) We padded the sequences with N's to align them to CATT (CATT_seq). Both will be checked for matches.
 
 ```{r import sequences}
 CATT_seq<-read.table(CATT_seq_filepath, stringsAsFactors = F)$V1 %>% as(Class="DNAStringSet") %>% subseq(start=10, width=15) #As consistent with Gagliardi et al.
-TGA_seq<-read.table(TGA_seq_filepath, stringsAsFactors = F)$V1 %>% as(Class="DNAStringSet") %>% subseq(start=16, width=14)
 ```
 
 # Create Nanog-Sox2 PWM
 
 ```{r construct PWM}
 CATT_PWM<-CATT_seq %>% PWM
-TGA_PWM<-TGA_seq %>% PWM
 ```
 
 # Match PWM across genome
@@ -121,21 +116,17 @@ TGA_PWM<-TGA_seq %>% PWM
 ```{r PWM match, eval=F}
 CATT_PWM_matches<-matchPWM(pwm = CATT_PWM, subject = BSgenome.Mmusculus.UCSC.mm10, min.score = "90%")
 saveRDS(CATT_PWM_matches, "data/rdata/nanog-sox/gagliardi_nanog_sox_pwm_matches_CATT_aligned.granges.rds")
-
-TGA_PWM_matches<-matchPWM(pwm = TGA_PWM, subject = BSgenome.Mmusculus.UCSC.mm10, min.score = "90%")
-saveRDS(TGA_PWM_matches, "data/rdata/nanog-sox/gagliardi_nanog_sox_pwm_matches_TGA_aligned.granges.rds")
 ```
 
 ```{r read PWM matches}
 CATT_PWM_matches<-readRDS("data/rdata/nanog-sox/gagliardi_nanog_sox_pwm_matches_CATT_aligned.granges.rds")
-TGA_PWM_matches<-readRDS("data/rdata/nanog-sox/gagliardi_nanog_sox_pwm_matches_TGA_aligned.granges.rds")
 ```
 
 # Generate a graphic motif for the Nanog-Sox2 
 
 As reported by Gagliardi, generate a graphical representation of the Nanog-Sox2 motif.
 
-```{r sfig13a-nanog-sox-motif-logo}
+```{r sfig8a-nanog-sox-motif-logo}
 #Plot pos motif
 CATT_PWM_matches$seq<-getSeq(BSgenome.Mmusculus.UCSC.mm10, CATT_PWM_matches)
 CATT_PWM_matches.pwm<-PWM(CATT_PWM_matches$seq, type="prob")
@@ -143,7 +134,7 @@ CATT_PWM_matches_motif <- new("pcm", mat=as.matrix(CATT_PWM_matches.pwm), name="
 plot(CATT_PWM_matches_motif)
 
 #Save to PDF
-pdf("figures/20-sfig13a-nanog-sox-alternative-partner/sfig13a-nanog-sox-motif-logo.pdf", width = 7.8, height=3)
+pdf("figures/20-sfig8a-nanog-sox-alternative-partner/sfig8a-nanog-sox-motif-logo.pdf", width = 7.8, height=3)
 plot(CATT_PWM_matches_motif)
 dev.off()
 ```
@@ -158,23 +149,14 @@ CATT_overlaps<-findOverlaps(CATT_PWM_matches, seqlets)
 CATT_overlaps@to %>% unique %>% length
 
 seqlets_with_CATT_overlaps<-seqlets[unique(CATT_overlaps@to)]
-seqlets_with_CATT_overlaps$name %>% table
-
-#TGA
-TGA_overlaps<-findOverlaps(TGA_PWM_matches, seqlets)
-TGA_overlaps@to %>% unique %>% length
-
-seqlets_with_TGA_overlaps<-seqlets[unique(TGA_overlaps@to)]
-seqlets_with_TGA_overlaps$name %>% table
+seqlets_with_CATT_overlaps$name %>% table 
 ```
 
-#Does BPnet think these regions are of high importance?
+# Does BPnet think these regions are of high importance?
 
 Are the CATT N-S heterodimer matches highly important? In order to subset from a smaller set of 201K sequence matches, we will overlap them with relevant peaks that were used to train BPnet.
 
 Once done, we will check 5 sets: OSKN and CATT motif regions for 3 things: importance, predicted signal, and actual signal.
-
-*NOTE: We will be using the DeepLift run, not the published run. The results are similar enough that this will suffice.*
 
 ### Collect setup
 
@@ -226,7 +208,7 @@ saveRDS(all_motif_signals, "data/rdata/nanog-sox/signal_comparisons_of_CATT_manu
 
 ### Plot comparisons
 
-```{r sfig13a-nanog-sox-motif-heatmaps}
+```{r sfig8a-nanog-sox-motif-heatmaps}
 all_motif_signals<-readRDS("data/rdata/nanog-sox/signal_comparisons_of_CATT_manuscript.rds")
 all_motif_signals$motif<-factor(all_motif_signals$motif, levels=rev(c("Oct4_0", "Sox2_1", "Nanog_1", "Klf4_0", "CATT_PWM")), labels=rev(c("Oct4-Sox2", "Sox2", "Nanog", "Klf4", "Putative Motif")))
 all_motif_signals$fac<-factor(all_motif_signals$fac, levels=c("oct4", "sox2", "nanog", "klf4"), labels=c("Oct4", "Sox2", "Nanog", "Klf4"))
@@ -260,7 +242,7 @@ print(imp)
 
 #Write as a combined plots
 grid.newpage()
-pdf("figures/20-sfig13a-nanog-sox-alternative-partner/sfig13a-nanog-sox-heatmaps.pdf", width = 7, height = 12) # Open a new pdf file
+pdf("figures/20-sfig8a-nanog-sox-alternative-partner/sfig8a-nanog-sox-heatmaps.pdf", width = 7, height = 12) # Open a new pdf file
 grid.draw(rbind(rbind(ggplotGrob(sig), ggplotGrob(pred), size = "first"), ggplotGrob(imp), size = "first"))
 dev.off() # Close the file
 ```

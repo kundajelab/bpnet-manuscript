@@ -1,5 +1,5 @@
 ---
-title: "sfig14bc: Spacing of Motifs across Transposable Elements"
+title: "sfig9 and efig5b: Spacing of Motifs across Transposable Elements"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -37,7 +37,7 @@ library(BSgenome.Mmusculus.UCSC.mm10); library(plyr); library(viridis); library(
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="figures/21-sfig14bc-strict-motif-spacing", width=16, height=20)
+options(knitr.figure_dir="figures/22-sfig9_efig5b-strict-motif-spacing", width=16, height=20)
 
 #Lab sources
 source("rscripts/granges_common.r")
@@ -60,7 +60,7 @@ motif_pair_filepath<-"data/csv/motif_pairs.csv" #see "generation of motif pairs"
 
 `data/csv/dfi_subset.csv` was generated in the SnakeMake file, refer to this for further details. 
 
-Motif pairs were generated in the corresponding `16-fig3g_sfig4b-strict-motif-spacing.ipynb`. 
+Motif pairs were generated in the corresponding `22-sfig9_efig5b-strict-motif-spacing_get_motif_pairs.ipynb`. 
 
 # Import motif pairs and mark for palindromic instances
 
@@ -146,8 +146,6 @@ motif_pairs_with_tes$is_te_by_rmask<-factor(motif_pairs_with_tes$is_te_by_rmask,
 We noticed that many of the long motifs that are across TEs are classified as TEs. How different are these results?
 
 ```{r annotate motif pairs erv}
-#filter for ervs
-#rm_class1_idx<-grep(pattern = paste(c("LINE", "SINE", "erv", "LTR", "ERVL", "ERV"), sep="", collapse="|"), x = rmask$repeat_class, ignore.case = T) %>% unique
 erv_idx<-grep(pattern = paste(c("ERV"), sep="", collapse="|"), x = rmask$repeat_class, ignore.case = T) %>% unique
 message(round(length(erv_idx) / length(rmask), 2), " % of RepeatMasker elements will be used as erv filter.")
 ervs<-rmask[erv_idx]
@@ -192,7 +190,7 @@ motif_pairs_with_tes$is_te_by_criteria<-factor(motif_pairs_with_tes$is_te_by_cri
 
 # Plot motif pair histogram with ERV-filter (class 1 retrotransposon subset)
 
-```{r sfig4b-strict-motif-spacing}
+```{r sfig9-strict-motif-spacing}
 plot_motif_pair_histogram<-function(df, max_dist = 100, min_dist = 6){
   #Reassign the data
   motif_pairs_with_tes_erv_plot<-subset(df, center_diff <= max_dist & center_diff >= min_dist)
@@ -288,7 +286,7 @@ spacing_vs_class_freq<-motif_pair_erv_frequencies(df = motif_pairs_with_tes_no_p
 
 ## Rank based on counts frequency with thresholded values
 
-```{r sfig14bc-strict-motif-spacing}
+```{r efig5b-strict-motif-spacing}
 
 plot_motif_pair_rankings<-function(df, spacing_count_threshold=0, top_annotation_idx=10, max_dist = 100, min_dist = 6){
 

@@ -1,5 +1,5 @@
 ---
-title: "sfig 8: BPNet motifs annotated across mm10 mESC enhancers"
+title: "sfig 5: BPNet motifs annotated across mm10 mESC enhancers"
 author: "Melanie (1028-02098-001-001)"
 date: '`r format(Sys.Date(), "%B %d, %Y")`'
 output:
@@ -32,13 +32,11 @@ We will annotate the list of BPNet candidate enhancers with the mapped motif ins
 ```{r, warning=F, message=F}
 #Standard packages
 library(rtracklayer) ; library(GenomicRanges); library(magrittr) ; library(Biostrings)
-library(ggplot2) ; library(reshape2); library(Rsamtools); library(data.table); library(dplyr)
-library(BSgenome.Dmelanogaster.UCSC.dm6); library(viridis)
-
+library(ggplot2) ; library(reshape2); library(Rsamtools); library(data.table); library(dplyr); library(viridis)
 
 #KNITR Options
 setwd("/n/projects/mw2098/publications/2019_bpnet/")
-options(knitr.figure_dir="figures/18-sfig8-enhancer-annotations", width=16, height=12)
+options(knitr.figure_dir="figures/19-sfig5-enhancer-annotations", width=16, height=12)
 
 #Lab sources
 source("/n/projects/mw2098/shared_code/rscripts/granges_common.r")
@@ -75,7 +73,6 @@ motifs.list<-list(`Oct4-Sox2` = "Oct4/m0_p0",
 ```{r}
 enhancers.path<-"data/xlsx/enhancer_regions_formatted_v3.xlsx" #curated set of enhancers in mESCs
 instances.path<-"data/tsv/dfi_subset.tsv" #all CWM-mapped instances from BPNet/TF-MoDISco run
-
 ```
 
 # Prepare enhancer regions
@@ -100,7 +97,6 @@ enhancers.gr<-enhancers.df %>% makeGRangesFromDataFrame(., keep.extra.columns = 
 
 #Record longest enhancer(for plotting over same axis)
 enh_longest<-max(width(enhancers.gr))
-
 ```
 
 # Map motifs across enhancers
@@ -108,7 +104,7 @@ enh_longest<-max(width(enhancers.gr))
 ## Import 11 representative instances
 
 ```{r}
-instances.gr<-readr::read_tsv(instances.path) %>% 
+instances.gr<-read.table(instances.path, header = T, sep = "\t") %>% 
   makeGRangesFromDataFrame(keep.extra.columns = T, starts.in.df.are.0based = T,
                            start.field = "pattern_start_abs", end.field = "pattern_end_abs", seqnames.field = "example_chrom")
 instances.gr$pattern_name<-factor(instances.gr$pattern_name, labels = names(motifs.list),
@@ -138,7 +134,6 @@ table(instances.gr$pattern_name)
 
 ```{r}
 #Find overlaps
-# inst_vs_enh_overlaps<-findOverlaps(instances.gr, enhancers.gr, ignore.strand = T)
 inst_vs_enh_overlaps<-findOverlaps(instances.gr, resize(enhancers.gr, enh_longest, "center"), ignore.strand = T)
 
 #Find instances and link to enhancers
@@ -224,7 +219,7 @@ enhancers.plot.list<-mclapply(enhancers.vec, function(x){
   
   plot.list<-list(title.plot, citation.plot, enhancer.plot)
   grid.arrange(grobs = plot.list, widths = c(unit(1, "in"), unit(1, "in"), unit(6, "in")))
-  ggsave(filename = paste0("figures/18-sfig8-enhancer-annotations/sfig8 ", x, ".pdf"), plot = grid.arrange(grobs = plot.list, widths = c(unit(1, "in"), unit(1, "in"), unit(7, "in"))), width = 8, height = .75)
+  ggsave(filename = paste0("figures/19-sfig5-enhancer-annotations/sfig8 ", x, ".pdf"), plot = grid.arrange(grobs = plot.list, widths = c(unit(1, "in"), unit(1, "in"), unit(7, "in"))), width = 8, height = .75)
   
   return(plot.list)
 }, mc.cores = 10)
@@ -245,7 +240,7 @@ g<-ggplot(motif_colors.df, aes(x = pattern_name, fill = pattern_name))+
   geom_tile(aes(y = 1))+
   scale_fill_manual(values = fills_in_order_all)+
   theme_classic()
-ggsave("figures/18-sfig8-enhancer-annotations/sfig8_motif_legend.pdf", g)
+ggsave("figures/19-sfig5-enhancer-annotations/sfig8_motif_legend.pdf", g)
 #theme(legend.position = "none")
 ```
 
